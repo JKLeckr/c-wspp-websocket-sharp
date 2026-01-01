@@ -1,4 +1,6 @@
 /.old/
 /build/
 /venv/
+.venv/
 /dist/
+*.code-workspace
