@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net35;net40</TargetFrameworks>
+    <AssemblyName>wstest</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64;x86</Platforms>
+    <PlatformTargets>x64;x86</PlatformTargets>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../websocket-sharp/websocket-sharp.csproj" />
+  </ItemGroup>
+
+</Project>
