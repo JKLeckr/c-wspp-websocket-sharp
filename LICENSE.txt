@@ -23,5 +23,5 @@ SOFTWARE.
 Binary distributions may contain parts of OpenSSL and other software.
 For OpenSSL see https://www.openssl.org/source/apache-license-2.0.txt
 See c-wspp and subfolders on
-https://github.com/black-sliver/c-wspp-websocket-sharp/
+https://github.com/JKLeckr/c-wspp-websocket-sharp/
 for more details and individual licenses.
