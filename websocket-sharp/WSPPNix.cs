@@ -98,8 +98,14 @@ namespace WebSocketSharp
             {
                 if (_dll == IntPtr.Zero)
                 {
+                    int platformId = (int)Environment.OSVersion.Platform;
                     // since we target old .net, there is only x86 and amd64 and we hope this works
                     string arch;
+                    // macos builds of c-wspp are Universal which work on both x86_64 and arm64
+                    if (platformId == 6)
+                    {
+                        arch = "universal";
+                    }
                     if (IntPtr.Size == 4)
                     {
                         arch = "x86";
@@ -113,7 +119,6 @@ namespace WebSocketSharp
                         throw new PlatformNotSupportedException("Unknown architecture");
                     }
 
-                    int platformId = (int)Environment.OSVersion.Platform;
                     if (platformId < 4 || platformId == 5)
                     {
                         throw new PlatformNotSupportedException("Use WSPPWin instead");
@@ -122,80 +127,7 @@ namespace WebSocketSharp
                     string attemptedPaths = "";
                     IDL dl = DynamicLinker.Create();
 
-                    // try to guess which openssl to target (if openssl1 is available, try that, then openssl3)
                     string variant = "";
-                    if (platformId != 6)
-                    {
-                        bool hasLibSSL = false;
-                        bool hasOpenSSL1 = false;
-                        bool hasOpenSSL3 = false;
-
-                        IntPtr tmp;
-                        tmp = dl.Open("libssl.so.3", 0x2);
-                        if (tmp != IntPtr.Zero)
-                        {
-                            dl.Close(tmp);
-                            hasOpenSSL3 = true;
-                        }
-                        else
-                        {
-                            tmp = dl.Open("libssl3.so", 0x2);
-                            if (tmp != IntPtr.Zero)
-                            {
-                                dl.Close(tmp);
-                                hasOpenSSL3 = true;
-                            }
-                        }
-                        tmp = dl.Open("libssl.so.1", 0x2);
-                        if (tmp != IntPtr.Zero)
-                        {
-                            dl.Close(tmp);
-                            hasOpenSSL1 = true;
-                        }
-                        else
-                        {
-                            tmp = dl.Open("libssl.so.1.1", 0x2);
-                            if (tmp != IntPtr.Zero)
-                            {
-                                dl.Close(tmp);
-                                hasOpenSSL1 = true;
-                            }
-                        }
-                        tmp = dl.Open("libssl.so", 0x2);
-                        if (tmp != IntPtr.Zero)
-                        {
-                            dl.Close(tmp);
-                            hasLibSSL = true;
-                        }
-                        else
-                        {
-                            tmp = dl.Open("ssl", 0x2);
-                            if (tmp != IntPtr.Zero)
-                            {
-                                dl.Close(tmp);
-                                hasLibSSL = true;
-                            }
-                        }
-
-                        #if DEBUG
-                        if (hasLibSSL)
-                            Console.WriteLine("Found libssl");
-                        if (hasOpenSSL1)
-                            Console.WriteLine("Found libssl 1.x");
-                        if (hasOpenSSL3)
-                            Console.WriteLine("Found libssl 3.x");
-                        if (!hasLibSSL && !hasOpenSSL1 && !hasOpenSSL3)
-                            Console.WriteLine("WARNING: Didn't find any openssl. Loading certs may fail.");
-                        #endif
-
-                        if (hasOpenSSL1)
-                        {
-                            variant = "-openssl1";
-                            #if DEBUG
-                            Console.WriteLine("Using variant openssl1");
-                            #endif
-                        }
-                    }
 
                     while (true)
                     {
