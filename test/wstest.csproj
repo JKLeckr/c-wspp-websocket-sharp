@@ -6,6 +6,7 @@
     <LangVersion>latest</LangVersion>
     <Platforms>x64;x86;ARM64</Platforms>
     <PlatformTargets>x64;x86;ARM64</PlatformTargets>
+    <OutputType>Exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
