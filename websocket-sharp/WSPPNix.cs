@@ -106,7 +106,7 @@ namespace WebSocketSharp
                     {
                         arch = "universal";
                     }
-                    if (IntPtr.Size == 4)
+                    else if (IntPtr.Size == 4)
                     {
                         arch = "x86";
                     }
