@@ -119,9 +119,14 @@ jobs:
         os:
           - { gha: macos-latest, wspp: macos }
         arch:
-          - { mac: x86_64, cs: x64, wspp: universal }
           - { mac: arm64, cs: arm64, wspp: universal }
+          - { mac: x86_64, cs: x64, wspp: universal }
         tgt: [ 'net35', 'net8' ]
+        exclude:
+          - arch:
+              mac: x86_64
+            tgt: 'net8'
+
 
     name: test-macos ${{ matrix.arch.mac }} ${{ matrix.tgt }}
     runs-on: ${{ matrix.os.gha }}

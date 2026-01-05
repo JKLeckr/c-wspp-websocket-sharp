@@ -98,16 +98,9 @@ namespace WebSocketSharp
             {
                 if (_dll == IntPtr.Zero)
                 {
-                    int platformId = (int)Environment.OSVersion.Platform;
                     // since we target old .net, there is only x86 and amd64 and we hope this works
                     string arch;
-                    // macos builds of c-wspp are Universal which work on both x86_64 and arm64
-                    Console.WriteLine(platformId);
-                    if (platformId == 6)
-                    {
-                        arch = "universal";
-                    }
-                    else if (IntPtr.Size == 4)
+                    if (IntPtr.Size == 4)
                     {
                         arch = "x86";
                     }
@@ -120,6 +113,7 @@ namespace WebSocketSharp
                         throw new PlatformNotSupportedException("Unknown architecture");
                     }
 
+                    int platformId = (int)Environment.OSVersion.Platform;
                     if (platformId < 4 || platformId == 5)
                     {
                         throw new PlatformNotSupportedException("Use WSPPWin instead");
@@ -144,7 +138,9 @@ namespace WebSocketSharp
                         {
                             dllPath += "/";
                         }
-                        dllPath += DLL_NAME + variant + "-" + platform + "-" + arch + ext;
+                        // macos builds of c-wspp are Universal which work on both x86_64 and arm64
+                        string _arch = (platformId == 6) ? "universal" : arch;
+                        dllPath += DLL_NAME + variant + "-" + platform + "-" + _arch + ext;
 
                         _dll = dl.Open(dllPath, 0x2);
                         if (_dll == IntPtr.Zero)
