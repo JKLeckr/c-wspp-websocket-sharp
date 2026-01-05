@@ -102,6 +102,7 @@ namespace WebSocketSharp
                     // since we target old .net, there is only x86 and amd64 and we hope this works
                     string arch;
                     // macos builds of c-wspp are Universal which work on both x86_64 and arm64
+                    Console.WriteLine(platformId);
                     if (platformId == 6)
                     {
                         arch = "universal";

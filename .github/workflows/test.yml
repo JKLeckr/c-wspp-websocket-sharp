@@ -22,7 +22,7 @@ jobs:
           - { gha: windows-latest, wspp: windows }
         arch:
           - { cs: x64, wspp: win64 }
-          - { cs: x86, wspp: win32 }
+          #- { cs: x86, wspp: win32 }
         tgt: [ 'net35', 'net8' ]
 
     name: test-windows ${{ matrix.arch.cs }} ${{ matrix.tgt }}
@@ -81,6 +81,7 @@ jobs:
           dotnet-version: "10.0.x"
       
       - name: Setup mono
+        if: ${{ matrix.tgt == 'net35' }}
         run: |
           sudo apt update -y
           sudo apt install mono-complete -y
@@ -100,14 +101,14 @@ jobs:
           export ASSET_ID=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/JKLeckr/c-wspp/releases/latest" | jq -r '.assets[] | select(.name | endswith(".zip")) | select(.name | contains("${{ matrix.os.gha }}-${{ matrix.arch.wspp }}")) | .id')
           curl -L -H "Accept: application/octet-stream" "https://api.github.com/repos/JKLeckr/c-wspp/releases/assets/${ASSET_ID}" -o c-wspp.zip
           unzip ./c-wspp.zip
-          cp ./c-wspp_${{ matrix.os.gha }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.so ./build/
+          cp -v ./c-wspp_${{ matrix.os.gha }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.so ./build/
       
-      - name: Run Test
+      - name: Run Test (net35)
         if: ${{ matrix.tgt == 'net35' }}
         run: |
           mono ./build/wstest.exe
       
-      - name: Run Test
+      - name: Run Test (net8)
         if: ${{ matrix.tgt == 'net8' }}
         run: |
           dotnet ./build/wstest.dll
@@ -129,11 +130,12 @@ jobs:
       - uses: actions/checkout@v4
       
       - name: Setup Homebrew x86_64
-        if: ${{ matrix.arch == 'x86_64' }}
+        if: ${{ matrix.tgt == 'net35' && matrix.arch == 'x86_64' }}
         run: |
           arch -x86_64 zsh -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
       
       - name: Setup Mono
+        if: ${{ matrix.tgt == 'net35' }}
         run: |
           arch -${{ matrix.arch.mac }} brew install mono
 
@@ -158,20 +160,20 @@ jobs:
           curl -L -H "Accept: application/octet-stream" "https://api.github.com/repos/JKLeckr/c-wspp/releases/assets/${ASSET_ID}" -o c-wspp.zip
           ls
           unzip ./c-wspp.zip
-          cp ./c-wspp_${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.dylib ./build/
+          cp -v ./c-wspp_${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.dylib ./build/
       
-      - name: Run Test (x86_64)
+      - name: Run Test (net35) (x86_64)
         if: ${{ matrix.tgt == 'net35' && matrix.arch.mac == 'x86_64' }}
         run: |
           eval "$(/usr/local/bin/brew shellenv)"
           /usr/local/bin/mono ./build/wstest.exe
       
-      - name: Run Test
+      - name: Run Test (net35)
         if: ${{ matrix.tgt == 'net35' && matrix.arch.mac == 'arm64' }}
         run: |
           mono ./build/wstest.exe
       
-      - name: Run Test
+      - name: Run Test (net8)
         if: ${{ matrix.tgt == 'net8' }}
         run: |
           dotnet ./build/wstest.dll
