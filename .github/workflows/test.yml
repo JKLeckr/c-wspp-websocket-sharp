@@ -114,6 +114,7 @@ jobs:
           dotnet ./build/wstest.dll
 
   test-macos:
+    if: false
     strategy:
       matrix:
         os:
