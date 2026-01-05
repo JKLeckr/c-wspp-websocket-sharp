@@ -23,7 +23,7 @@ jobs:
         arch:
           - { cs: x64, wspp: win64 }
           - { cs: x86, wspp: win32 }
-        tgt: [ 'netstandard2.0', 'net35' ]
+        tgt: [ 'net35', 'net8' ]
 
     name: test-windows ${{ matrix.arch.cs }} ${{ matrix.tgt }}
     runs-on: ${{ matrix.os.gha }}
@@ -41,7 +41,7 @@ jobs:
           dotnet restore
           dotnet clean
       
-      - name: Build Project
+      - name: Build Tests
         run: |
           mkdir .\build
           dotnet build -o .\build --arch ${{ matrix.arch.cs }} -f ${{ matrix.tgt }} -c Debug .\test\wstest.csproj
@@ -67,7 +67,7 @@ jobs:
           - { gha: ubuntu-24.04, wspp: linux }
         arch:
           - { cs: x64, wspp: amd64 }
-        tgt: [ 'net35' ]
+        tgt: [ 'net35', 'net8' ]
 
     name: test-linux ${{ matrix.os.gha }} ${{ matrix.arch.cs }} ${{ matrix.tgt }}
     runs-on: ${{ matrix.os.gha }}
@@ -90,7 +90,7 @@ jobs:
           dotnet restore
           dotnet clean
 
-      - name: Build Project
+      - name: Build Tests
         run: |
           mkdir ./build
           dotnet build -o ./build --arch ${{ matrix.arch.cs }} -f ${{ matrix.tgt }} -c Debug ./test/wstest.csproj
@@ -103,8 +103,14 @@ jobs:
           cp ./c-wspp_${{ matrix.os.gha }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.so ./build/
       
       - name: Run Test
+        if: ${{ matrix.tgt == 'net35' }}
         run: |
           mono ./build/wstest.exe
+      
+      - name: Run Test
+        if: ${{ matrix.tgt == 'net8' }}
+        run: |
+          dotnet ./build/wstest.dll
 
   test-macos:
     strategy:
@@ -114,7 +120,7 @@ jobs:
         arch:
           - { mac: x86_64, cs: x64, wspp: universal }
           - { mac: arm64, cs: arm64, wspp: universal }
-        tgt: [ 'net35' ]
+        tgt: [ 'net35', 'net8' ]
 
     name: test-macos ${{ matrix.arch.mac }} ${{ matrix.tgt }}
     runs-on: ${{ matrix.os.gha }}
@@ -147,6 +153,7 @@ jobs:
       
       - name: Get c-wspp
         run: |
+          zsh
           export ASSET_ID=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/JKLeckr/c-wspp/releases/latest" | jq -r '.assets[] | select(.name | endswith(".zip")) | select(.name | contains("macos-${{ matrix.arch.wspp }}")) | .id')
           curl -L -H "Accept: application/octet-stream" "https://api.github.com/repos/JKLeckr/c-wspp/releases/assets/${ASSET_ID}" -o c-wspp.zip
           ls
@@ -154,12 +161,17 @@ jobs:
           cp ./c-wspp_${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.dylib ./build/
       
       - name: Run Test (x86_64)
-        if: ${{ matrix.arch.mac == 'x86_64' }}
+        if: ${{ matrix.tgt == 'net35' && matrix.arch.mac == 'x86_64' }}
         run: |
           eval "$(/usr/local/bin/brew shellenv)"
           /usr/local/bin/mono ./build/wstest.exe
       
       - name: Run Test
-        if: ${{ matrix.arch.mac == 'arm64' }}
+        if: ${{ matrix.tgt == 'net35' && matrix.arch.mac == 'arm64' }}
         run: |
           mono ./build/wstest.exe
+      
+      - name: Run Test
+        if: ${{ matrix.tgt == 'net8' }}
+        run: |
+          dotnet ./build/wstest.dll

@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net35;net40</TargetFrameworks>
+    <TargetFrameworks>netstandard2.0;net35</TargetFrameworks>
     <AssemblyName>websocket-sharp</AssemblyName>
     <LangVersion>latest</LangVersion>
     <Platforms>x64;x86;ARM64</Platforms>
     <PlatformTargets>x64;x86;ARM64</PlatformTargets>
-    <DefineConstants>$(DefineConstants);WIN32_C_WSPP_CALLING_CONVENTION_CDECL</DefineConstants>
+    <DefineConstants>$(DefineConstants)</DefineConstants>
   </PropertyGroup>
 
 </Project>

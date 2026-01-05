@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;net35;net40</TargetFrameworks>
+    <TargetFrameworks>net35;net8</TargetFrameworks>
     <AssemblyName>wstest</AssemblyName>
     <LangVersion>latest</LangVersion>
     <Platforms>x64;x86;ARM64</Platforms>
     <PlatformTargets>x64;x86;ARM64</PlatformTargets>
-    <OutputType>Exe</OutputType>
+    <OutputType>exe</OutputType>
   </PropertyGroup>
 
   <ItemGroup>
