@@ -34,9 +34,10 @@ namespace WebSocketSharp
             readyState = WebSocketState.Open;
             EventArgs e = new EventArgs();
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            if (dispatcher != null)
+            WebSocketEventDispatcher activeDispatcher = dispatcher;
+            if (activeDispatcher != null)
             {
-                dispatcher.Enqueue(e);
+                activeDispatcher.Enqueue(e);
             }
         }
 
@@ -53,9 +54,10 @@ namespace WebSocketSharp
 
             CloseEventArgs e = new CloseEventArgs(0, ""); // TODO: code and reason
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            if (dispatcher != null)
+            WebSocketEventDispatcher activeDispatcher = dispatcher;
+            if (activeDispatcher != null)
             {
-                dispatcher.Enqueue(e);
+                activeDispatcher.Enqueue(e);
             }
         }
 
@@ -68,9 +70,10 @@ namespace WebSocketSharp
 
             MessageEventArgs e = new MessageEventArgs(bytes, (OpCode)opCode);
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            if (dispatcher != null)
+            WebSocketEventDispatcher activeDispatcher = dispatcher;
+            if (activeDispatcher != null)
             {
-                dispatcher.Enqueue(e);
+                activeDispatcher.Enqueue(e);
             }
         }
 
@@ -122,9 +125,10 @@ namespace WebSocketSharp
             // emit event for external ping
             MessageEventArgs e = new MessageEventArgs(bytes, OpCode.Pong);
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            if (dispatcher != null)
+            WebSocketEventDispatcher activeDispatcher = dispatcher;
+            if (activeDispatcher != null)
             {
-                dispatcher.Enqueue(e);
+                activeDispatcher.Enqueue(e);
             }
         }
 

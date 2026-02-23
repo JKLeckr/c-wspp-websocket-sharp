@@ -9,7 +9,7 @@ namespace WebSocketSharp
     {
         private IWSPP _wspp;
         private Thread _thread;
-        private bool _stop;
+        private volatile bool _stop;
         private int _id;
         static object _lastIdLock = new object();
         static int _lastId = 0;
@@ -38,6 +38,14 @@ namespace WebSocketSharp
         public bool IsCurrentThread { get { return Thread.CurrentThread == _thread; } }
 
         public bool IsAlive { get { return _thread.IsAlive; } }
+
+        private void joinThreadIfRunning()
+        {
+            if (_thread != null && _thread.IsAlive)
+            {
+                _thread.Join();
+            }
+        }
 
         private void debug(string msg)
         {
@@ -133,7 +141,7 @@ namespace WebSocketSharp
             if (!_stop)
             {
                 _stop = true;
-                _thread.Join();
+                joinThreadIfRunning();
                 debug("joined");
             }
         }

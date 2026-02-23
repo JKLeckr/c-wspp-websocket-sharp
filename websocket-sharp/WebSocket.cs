@@ -254,7 +254,16 @@ namespace WebSocketSharp
                 // need to close before disposing worker
                 debug("shutting down");
                 if (old != null)
-                    old.close(1001, "Going away");
+                {
+                    try
+                    {
+                        old.close(1001, "Going away");
+                    }
+                    catch (Exception ex)
+                    {
+                        debug("close during dispose failed: " + ex.Message);
+                    }
+                }
 
                 // try to stop the worker thread
                 try
@@ -297,7 +306,16 @@ namespace WebSocketSharp
 
                 debug("wspp_delete");
                 if (old != null)
-                    old.delete(); // TODO; dispose instead
+                {
+                    try
+                    {
+                        old.delete(); // TODO; dispose instead
+                    }
+                    catch (Exception ex)
+                    {
+                        debug("delete during dispose failed: " + ex.Message);
+                    }
+                }
 
                 lock (_nativeLogLock)
                 {
@@ -453,9 +471,10 @@ namespace WebSocketSharp
 
             debug("Error: " + message);
             ErrorEventArgs e = new ErrorEventArgs(message, exception);
-            if (dispatcher != null)
+            WebSocketEventDispatcher activeDispatcher = dispatcher;
+            if (activeDispatcher != null)
             {
-                dispatcher.Enqueue(e);
+                activeDispatcher.Enqueue(e);
             }
         }
 
@@ -476,7 +495,7 @@ namespace WebSocketSharp
 
         private void pingBlocking(byte[] data, int timeout=15000)
         {
-            if (worker.IsCurrentThread) {
+            if (worker != null && worker.IsCurrentThread) {
                 throw new InvalidOperationException("Can't wait for reply from worker thread");
             }
 
@@ -631,7 +650,7 @@ namespace WebSocketSharp
                 throw_wspp_error("Close", closeRes);
             }
 
-            if (worker.IsCurrentThread) {
+            if (worker != null && worker.IsCurrentThread) {
                 throw new InvalidOperationException("Can't wait for reply from worker thread");
             }
             while (worker != null && worker.IsAlive && readyState != WebSocketState.Closed) {

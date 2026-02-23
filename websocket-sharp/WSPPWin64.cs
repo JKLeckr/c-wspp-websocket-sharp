@@ -217,18 +217,28 @@ namespace WebSocketSharp
         {
             validate();
             IntPtr reasonUTF8 = Native.StringToHGlobalUTF8(reason);
-            var res = (WsppRes) wspp_close(_ws, code, reasonUTF8);
-            Marshal.FreeHGlobal(reasonUTF8);
-            return res;
+            try
+            {
+                return (WsppRes) wspp_close(_ws, code, reasonUTF8);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(reasonUTF8);
+            }
         }
 
         public WsppRes send(string message)
         {
             validate();
             IntPtr p = Native.StringToHGlobalUTF8(message);
-            var res = (WsppRes) wspp_send_text(_ws, p);
-            Marshal.FreeHGlobal(p);
-            return res;
+            try
+            {
+                return (WsppRes) wspp_send_text(_ws, p);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(p);
+            }
         }
 
         public WsppRes send(byte[] data)

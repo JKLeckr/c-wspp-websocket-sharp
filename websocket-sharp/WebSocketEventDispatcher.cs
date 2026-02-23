@@ -9,8 +9,9 @@ namespace WebSocketSharp
     internal class WebSocketEventDispatcher : IDisposable
     {
         private Thread _thread;
-        private bool _stop;
-        private Queue<EventArgs> _queue;
+        private volatile bool _stop;
+        private readonly Queue<EventArgs> _queue;
+        private readonly object _queueLock;
         private int _id;
         static object _lastIdLock = new object();
         static int _lastId = 0;
@@ -24,6 +25,7 @@ namespace WebSocketSharp
             _thread = new Thread(new ThreadStart(work));
             _stop = false;
             _queue = new Queue<EventArgs>();
+            _queueLock = new object();
         }
 
         public void Start()
@@ -63,7 +65,7 @@ namespace WebSocketSharp
             {
                 // dispatch events from here
                 EventArgs e;
-                lock(_queue)
+                lock(_queueLock)
                 {
                     e = (_queue.Count > 0) ? _queue.Dequeue() : null;
                 }
@@ -104,7 +106,6 @@ namespace WebSocketSharp
                 }
             }
             debug("stopped");
-            _queue = null;
         }
 
         public void Dispose()
@@ -125,7 +126,10 @@ namespace WebSocketSharp
                 _stop = true;
                 _thread.Join();
                 debug("joined");
-                _queue = null;
+                lock (_queueLock)
+                {
+                    _queue.Clear();
+                }
             }
         }
 
@@ -136,8 +140,17 @@ namespace WebSocketSharp
 
         public void Enqueue(EventArgs e)
         {
-            lock(_queue)
+            if (e == null)
             {
+                return;
+            }
+
+            lock(_queueLock)
+            {
+                if (_stop)
+                {
+                    return;
+                }
                 _queue.Enqueue(e);
             }
         }
