@@ -8,7 +8,45 @@ on:
       - "!*norel*"
 
 jobs:
+  build-macos-native-universal:
+    name: build macos universal native
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Build c-wspp-rs dylibs for both macOS targets
+        working-directory: c-wspp-rs
+        run: |
+          cargo build --release --target aarch64-apple-darwin
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Create universal dylib
+        shell: bash
+        run: |
+          mkdir -p build/native-macos-universal
+          lipo -create \
+            c-wspp-rs/target/aarch64-apple-darwin/release/libc_wspp_rs.dylib \
+            c-wspp-rs/target/x86_64-apple-darwin/release/libc_wspp_rs.dylib \
+            -output build/native-macos-universal/c-wspp-macos-universal.dylib
+          file build/native-macos-universal/c-wspp-macos-universal.dylib
+
+      - name: Upload universal native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-native
+          path: build/native-macos-universal/c-wspp-macos-universal.dylib
+          if-no-files-found: error
+
   build:
+    needs: build-macos-native-universal
     strategy:
       fail-fast: false
       matrix:
@@ -17,10 +55,12 @@ jobs:
             os_id: windows-x64
           - runner: ubuntu-24.04
             os_id: linux-x64
-          - runner: macos-13
+          - runner: macos-15
             os_id: macos-x64
+            managed_arch: x64
           - runner: macos-15
             os_id: macos-arm64
+            managed_arch: arm64
         tfm: ["netstandard2.0", "net35"]
 
     name: build ${{ matrix.os_id }} ${{ matrix.tfm }}
@@ -41,9 +81,28 @@ jobs:
           dotnet restore
           dotnet clean
 
-      - name: Build websocket-sharp
+      - name: Build websocket-sharp (Windows/Linux)
+        if: ${{ !startsWith(matrix.os_id, 'macos-') }}
         run: |
           dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }}
+
+      - name: Build websocket-sharp (macOS managed architecture)
+        if: ${{ startsWith(matrix.os_id, 'macos-') }}
+        run: |
+          dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.managed_arch }}
+
+      - name: Download universal macOS native artifact
+        if: ${{ startsWith(matrix.os_id, 'macos-') }}
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-universal-native
+          path: build/native-macos-universal
+
+      - name: Inject universal macOS native library
+        if: ${{ startsWith(matrix.os_id, 'macos-') }}
+        shell: bash
+        run: |
+          cp -f build/native-macos-universal/c-wspp-macos-universal.dylib "websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib"
 
       - name: Prepare package metadata
         id: meta

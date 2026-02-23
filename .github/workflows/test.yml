@@ -134,3 +134,52 @@ jobs:
           else
             dotnet ./test/bin/Debug/net8/wstest.dll "" "ws://127.0.0.1:18765/ws"
           fi
+
+  test-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        tgt: ["net8"]
+
+    name: test-macos ${{ matrix.tgt }}
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore + clean
+        run: |
+          dotnet restore
+          dotnet clean
+
+      - name: Build wsmini server
+        run: |
+          dotnet build ./test/wsmini.csproj -c Debug -f net8.0
+
+      - name: Build wstest
+        run: |
+          dotnet build ./test/wstest.csproj -c Debug -f ${{ matrix.tgt }}
+
+      - name: Run integration test against local wsmini
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet ./test/bin/Debug/net8.0/wsmini.dll > wsmini.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:18765/ >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
+
+          dotnet ./test/bin/Debug/net8/wstest.dll "" "ws://127.0.0.1:18765/ws"
