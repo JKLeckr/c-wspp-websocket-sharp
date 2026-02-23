@@ -16,6 +16,8 @@ namespace WebSocketSharp
         OK = 0,
         InvalidState = 1,
         InvalidArgument = 2,
+        IoError = 9,
+        ProtocolError = 10,
         Unknown = -1,
     }
 
@@ -24,6 +26,7 @@ namespace WebSocketSharp
     /// </summary>
     internal interface IWSPP
     {
+        ulong abi_version();
         WsppRes connect();
         void delete();
         WsppRes close(ushort code, string reason);

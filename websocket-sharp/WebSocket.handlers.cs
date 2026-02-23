@@ -81,7 +81,8 @@ namespace WebSocketSharp
             if (wspp == null)
                 return;
 
-            if (readyState == WebSocketState.Connecting)
+            bool isConnectError = readyState == WebSocketState.Connecting;
+            if (isConnectError)
             {
                 // no need to close
                 debug("ReadyState = Closed");
@@ -93,7 +94,7 @@ namespace WebSocketSharp
                 readyState = WebSocketState.Closed;
             }
             lastError = msg;
-            error("Connect error: " + msg);
+            error((isConnectError ? "Connect error: " : "WebSocket error: ") + msg);
         }
 
         private void PongHandler(byte[] bytes)
@@ -106,11 +107,12 @@ namespace WebSocketSharp
             // look for internal ping
             lock (pings)
             {
-                foreach (byte[] b in pings)
+                for (int i = 0; i < pings.Count; i++)
                 {
+                    byte[] b = pings[i];
                     if (sequenceEqual(bytes, b))
                     {
-                        pings.Remove(b);
+                        pings.RemoveAt(i);
                         lastPong = DateTime.UtcNow;
                         return;
                     }

@@ -62,6 +62,8 @@ namespace WebSocketSharp
         internal delegate void Wspp_set_log_handler(OnLogCallback f);
         [UnmanagedFunctionPointer(CALLING_CONVENTION)]
         internal delegate void Wspp_set_loglevel(int level);
+        [UnmanagedFunctionPointer(CALLING_CONVENTION)]
+        internal delegate ulong Wspp_abi_version();
 
         UIntPtr _ws;
 
@@ -90,6 +92,7 @@ namespace WebSocketSharp
         static Wspp_set_pong_handler wspp_set_pong_handler;
         static Wspp_set_log_handler wspp_set_log_handler;
         static Wspp_set_loglevel wspp_set_loglevel;
+        static Wspp_abi_version wspp_abi_version;
 
         static IntPtr _dll;
         static OnLogCallback _nativeLogCallback;
@@ -202,8 +205,13 @@ namespace WebSocketSharp
                         {
                             wspp_set_loglevel = (Wspp_set_loglevel)Marshal.GetDelegateForFunctionPointer(setLoglevelSym, typeof(Wspp_set_loglevel));
                         }
+                        IntPtr abiVersionSym = dl.Sym(_dll, "wspp_abi_version");
+                        if (abiVersionSym != IntPtr.Zero)
+                        {
+                            wspp_abi_version = (Wspp_abi_version)Marshal.GetDelegateForFunctionPointer(abiVersionSym, typeof(Wspp_abi_version));
+                        }
 
-                        if (wspp_run == null || wspp_new == null)
+                        if (wspp_run == null || wspp_new == null || wspp_abi_version == null)
                         {
                             throw new ArgumentException("Wrong or incompatible " + DLL_NAME);
                         }
@@ -317,6 +325,11 @@ namespace WebSocketSharp
             catch (Exception)
             {
             }
+        }
+
+        public ulong abi_version()
+        {
+            return wspp_abi_version();
         }
 
         public WsppRes connect()

@@ -61,6 +61,8 @@ namespace WebSocketSharp
         internal static extern void wspp_set_log_handler(OnLogCallback f);
         [DllImport(DLL_NAME, CallingConvention=CALLING_CONVENTION, EntryPoint="wspp_set_loglevel")]
         internal static extern void wspp_set_loglevel(int level);
+        [DllImport(DLL_NAME, CallingConvention=CALLING_CONVENTION, EntryPoint="wspp_abi_version")]
+        internal static extern ulong wspp_abi_version();
 
         UIntPtr _ws;
 
@@ -192,8 +194,14 @@ namespace WebSocketSharp
             }
         }
 
+        public ulong abi_version()
+        {
+            return wspp_abi_version();
+        }
+
         public WsppRes connect()
         {
+            validate();
             return (WsppRes) wspp_connect(_ws);
         }
 

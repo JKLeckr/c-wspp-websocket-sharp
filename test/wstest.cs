@@ -7,16 +7,35 @@ namespace WSTest
 {
     public class WSTest
     {
-        public const string DEFAULT_URI = "wss://echo.websocket.org/";
+        public const string DEFAULT_URI = "ws://127.0.0.1:18765/ws";
 
         public static int Main(string[] args)
         {
-            if (args.Length > 0 && args[0] != "")
+            string nativeLibDir = "";
+            string uri = DEFAULT_URI;
+            if (args.Length == 1)
             {
-                WebSocketSetNativeDirectory(args[0]);
+                if (Uri.TryCreate(args[0], UriKind.Absolute, out Uri parsed) &&
+                    (parsed.Scheme == "ws" || parsed.Scheme == "wss"))
+                {
+                    uri = args[0];
+                }
+                else
+                {
+                    nativeLibDir = args[0];
+                }
+            }
+            else if (args.Length > 1)
+            {
+                nativeLibDir = args[0];
+                uri = args[1];
             }
 
-            string uri = args.Length > 1 ? args[1] : DEFAULT_URI;
+            if (!string.IsNullOrEmpty(nativeLibDir))
+            {
+                WebSocketSetNativeDirectory(nativeLibDir);
+            }
+
             if (!new WSTest(uri).Run())
             {
                 return 1;

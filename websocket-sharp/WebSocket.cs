@@ -45,6 +45,7 @@ namespace WebSocketSharp
         private static NativeLogLevel _nativeLogVerbosity = NativeLogLevel.Off;
         private static bool _nativeLoggingSupported = false;
         private static IWSPP _nativeLogBackend = null;
+        private const ulong EXPECTED_WSPP_ABI_VERSION = 1;
 
         public static NativeLogHandler NativeLogger
         {
@@ -320,6 +321,35 @@ namespace WebSocketSharp
         private static IWSPP wspp_new(string uriString)
         {
             IWSPP res = WSPPFactory.Create(uriString);
+            ulong abiVersion;
+            try
+            {
+                abiVersion = res.abi_version();
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    res.delete();
+                }
+                catch (Exception)
+                {
+                }
+                throw new InvalidOperationException("Could not determine native c-wspp ABI version", ex);
+            }
+            if (abiVersion != EXPECTED_WSPP_ABI_VERSION)
+            {
+                try
+                {
+                    res.delete();
+                }
+                catch (Exception)
+                {
+                }
+                throw new InvalidOperationException(
+                    "Incompatible native c-wspp ABI version " + abiVersion +
+                    " (expected " + EXPECTED_WSPP_ABI_VERSION + ")");
+            }
             sdebug("wspp created via " + res.GetType().Name);
             return res;
         }
