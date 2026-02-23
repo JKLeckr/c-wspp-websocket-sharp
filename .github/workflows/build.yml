@@ -56,8 +56,8 @@ jobs:
           - {managed_arch: x64, os_id: windows-x64, rid_dir: win-x64}
         tfm: ["netstandard2.0", "net35"]
         include:
-          - arch: {managed_arch: x86, os_id: windows-x86, rid_dir: win-x86}
-            tfm: ["net35"]
+          - os: {managed_arch: x86, os_id: windows-x86, rid_dir: win-x86}
+            tfm: "net35"
 
     name: build-windows ${{ matrix.os.os_id }} ${{ matrix.tfm }}
     runs-on: windows-latest
@@ -160,7 +160,7 @@ jobs:
         tfm: ["netstandard2.0", "net35"]
         include:
           - os: "ubuntu-22.04"
-            tfm: [net35]
+            tfm: "net35"
 
     name: build-linux ${{ matrix.os }} ${{ matrix.tfm }}
     runs-on: ${{ matrix.os }}
@@ -217,7 +217,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ needs.prepare-release.outputs.release_tag }}"
-          OS_ID="linux-x64"
+          OS_ID="${{ matrix.os }}"
           TFM="${{ matrix.tfm }}"
           NAME="c-wspp-websocket-sharp_${TAG}_${OS_ID}_${TFM}"
           ZIP_NAME="${NAME}.zip"
@@ -315,10 +315,10 @@ jobs:
           - {managed_arch: arm64, os_id: macos-arm64}
         tfm: ["netstandard2.0", "net35"]
         include:
-          - arch: {managed_arch: x64, os_id: macos-x86_64}
-            tfm: ["net35"]
+          - os: {managed_arch: x64, os_id: macos-x86_64}
+            tfm: "net35"
 
-    name: build-macos ${{ matrix.os_id }} ${{ matrix.tfm }}
+    name: build-macos ${{ matrix.os.os_id }} ${{ matrix.tfm }}
     runs-on: macos-15
     needs:
       - prepare-release
