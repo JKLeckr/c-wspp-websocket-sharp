@@ -3,10 +3,8 @@
 Fake websocket-sharp.dll that partially implements the API of
 [websocket-sharp](https://github.com/sta/websocket-sharp),
 but uses a native lib
-[c-wspp](https://github.com/JKLeckr/c-wspp),
+[c-wspp-rs](https://github.com/JKLeckr/c-wspp-rs),
 which is a wrapper around
-[WebSocket++](https://github.com/zaphoyd/websocketpp.git)
-to get latest SSL/TLS support into builds that depend on or embed older Mono.
 
 On macOS, this project expects the native library as a universal build:
 `c-wspp-macos-universal.dylib`.
