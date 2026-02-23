@@ -6,6 +6,9 @@
 # Backup files
 *.bak
 
+# dotnet
+.dotnet
+
 # Excluded Folders
 [Rr]estricted/
 [Ee]xclude/
