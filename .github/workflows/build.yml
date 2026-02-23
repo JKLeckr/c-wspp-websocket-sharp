@@ -47,6 +47,11 @@ jobs:
           name: c-wspp-websocket-sharp ${{ steps.meta.outputs.release_tag }}
           token: ${{ secrets.CWSPP_WEBSOCKET_SHARP_TOKEN }}
 
+      - name: Prepare Rust tools
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-bundle-licenses
+
 
   build-windows:
     strategy:
