@@ -121,6 +121,16 @@ jobs:
           Copy-Item ".\c-wspp-rs\LICENSE" -Destination (Join-Path $licDir "LICENSE.c-wspp-rs.txt") -Force
           Copy-Item ".\c-wspp-rs\LICENSE.3rd-party.txt" -Destination (Join-Path $licDir "LICENSE.c-wspp-rs.3rd-party.txt") -Force
           Copy-Item ".\build\licenses\cwspp-rs-THIRDPARTY.yaml" -Destination (Join-Path $licDir "cwspp-rs-THIRDPARTY.yaml") -Force
+          @(
+            "LICENSE.txt",
+            "LICENSE.c-wspp-rs.txt",
+            "LICENSE.c-wspp-rs.3rd-party.txt",
+            "LICENSE.3rd-party.txt",
+            "cwspp-rs-THIRDPARTY.yaml"
+          ) | ForEach-Object {
+            $rootFile = Join-Path $pkgDir $_
+            if (Test-Path $rootFile) { Remove-Item $rootFile -Force }
+          }
           Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force
 
           "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
@@ -216,6 +226,12 @@ jobs:
           cp c-wspp-rs/LICENSE "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.txt"
           cp c-wspp-rs/LICENSE.3rd-party.txt "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.3rd-party.txt"
           cp build/licenses/cwspp-rs-THIRDPARTY.yaml "${PKG_DIR}/licenses/cwspp-rs-THIRDPARTY.yaml"
+          rm -f \
+            "${PKG_DIR}/LICENSE.txt" \
+            "${PKG_DIR}/LICENSE.c-wspp-rs.txt" \
+            "${PKG_DIR}/LICENSE.c-wspp-rs.3rd-party.txt" \
+            "${PKG_DIR}/LICENSE.3rd-party.txt" \
+            "${PKG_DIR}/cwspp-rs-THIRDPARTY.yaml"
           (cd "${BUILD_DIR}" && zip -r "${ZIP_NAME}" "${NAME}")
 
           echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
@@ -307,22 +323,32 @@ jobs:
           TAG="${{ needs.prepare-release.outputs.release_tag }}"
           OS_ID="${{ matrix.os_id }}"
           TFM="${{ matrix.tfm }}"
+          MANAGED_ARCH="${{ matrix.managed_arch }}"
+          RID_DIR="osx-${MANAGED_ARCH}"
           NAME="c-wspp-websocket-sharp_${TAG}_${OS_ID}_${TFM}"
           ZIP_NAME="${NAME}.zip"
 
-          SRC="websocket-sharp/bin/Release/${TFM}"
+          SRC_RUNTIME="websocket-sharp/bin/Release/${TFM}/${RID_DIR}"
+          SRC_UNIVERSAL="websocket-sharp/bin/Release/${TFM}/c-wspp-macos-universal.dylib"
           BUILD_DIR="build"
           PKG_DIR="${BUILD_DIR}/${NAME}"
           ZIP_PATH="${BUILD_DIR}/${ZIP_NAME}"
 
           rm -rf "${PKG_DIR}" "${ZIP_PATH}"
           mkdir -p "${PKG_DIR}"
-          cp -R "${SRC}/." "${PKG_DIR}/"
+          cp -R "${SRC_RUNTIME}/." "${PKG_DIR}/"
+          cp "${SRC_UNIVERSAL}" "${PKG_DIR}/c-wspp-macos-universal.dylib"
           mkdir -p "${PKG_DIR}/licenses"
           cp LICENSE.txt "${PKG_DIR}/licenses/LICENSE.txt"
           cp c-wspp-rs/LICENSE "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.txt"
           cp c-wspp-rs/LICENSE.3rd-party.txt "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.3rd-party.txt"
           cp build/licenses/cwspp-rs-THIRDPARTY.yaml "${PKG_DIR}/licenses/cwspp-rs-THIRDPARTY.yaml"
+          rm -f \
+            "${PKG_DIR}/LICENSE.txt" \
+            "${PKG_DIR}/LICENSE.c-wspp-rs.txt" \
+            "${PKG_DIR}/LICENSE.c-wspp-rs.3rd-party.txt" \
+            "${PKG_DIR}/LICENSE.3rd-party.txt" \
+            "${PKG_DIR}/cwspp-rs-THIRDPARTY.yaml"
           (cd "${BUILD_DIR}" && zip -r "${ZIP_NAME}" "${NAME}")
 
           echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
