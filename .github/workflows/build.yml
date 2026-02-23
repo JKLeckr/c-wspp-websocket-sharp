@@ -2,15 +2,69 @@ name: Build
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Tag to publish draft release assets to (required for manual runs)"
+        required: false
+        type: string
   push:
     tags:
       - "v*"
       - "!*norel*"
 
 jobs:
-  build-macos-native-universal:
-    name: build macos universal native
-    runs-on: macos-15
+  prepare-release:
+    name: prepare-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      release_tag: ${{ steps.meta.outputs.release_tag }}
+
+    steps:
+      - name: Resolve release tag
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${{ github.event.inputs.release_tag }}"
+          fi
+          if [[ -z "${TAG}" ]]; then
+            echo "No release tag available. For workflow_dispatch, provide inputs.release_tag."
+            exit 1
+          fi
+          echo "release_tag=${TAG}" >> "${GITHUB_OUTPUT}"
+
+      - name: Ensure draft release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.release_tag }}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists."
+          else
+            gh release create "${TAG}" \
+              --draft \
+              --title "${TAG}" \
+              --notes "Automated draft release for ${TAG}"
+          fi
+
+  build-windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        tfm: ["netstandard2.0", "net35"]
+
+    name: build-windows ${{ matrix.tfm }}
+    runs-on: windows-latest
+    needs: prepare-release
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -19,57 +73,6 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
-
-      - name: Build c-wspp-rs dylibs for both macOS targets
-        working-directory: c-wspp-rs
-        run: |
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
-
-      - name: Create universal dylib
-        shell: bash
-        run: |
-          mkdir -p build/native-macos-universal
-          lipo -create \
-            c-wspp-rs/target/aarch64-apple-darwin/release/libc_wspp_rs.dylib \
-            c-wspp-rs/target/x86_64-apple-darwin/release/libc_wspp_rs.dylib \
-            -output build/native-macos-universal/c-wspp-macos-universal.dylib
-          file build/native-macos-universal/c-wspp-macos-universal.dylib
-
-      - name: Upload universal native artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-universal-native
-          path: build/native-macos-universal/c-wspp-macos-universal.dylib
-          if-no-files-found: error
-
-  build:
-    needs: build-macos-native-universal
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: windows-latest
-            os_id: windows-x64
-          - runner: ubuntu-24.04
-            os_id: linux-x64
-          - runner: macos-15
-            os_id: macos-x64
-            managed_arch: x64
-          - runner: macos-15
-            os_id: macos-arm64
-            managed_arch: arm64
-        tfm: ["netstandard2.0", "net35"]
-
-    name: build ${{ matrix.os_id }} ${{ matrix.tfm }}
-    runs-on: ${{ matrix.runner }}
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
@@ -81,54 +84,193 @@ jobs:
           dotnet restore
           dotnet clean
 
-      - name: Build websocket-sharp (Windows/Linux)
-        if: ${{ !startsWith(matrix.os_id, 'macos-') }}
+      - name: Build websocket-sharp
+        run: |
+          dotnet build .\websocket-sharp\websocket-sharp.csproj -c Release -f ${{ matrix.tfm }}
+
+      - name: Create zip bundle
+        id: pack
+        shell: pwsh
+        run: |
+          $tag = "${{ needs.prepare-release.outputs.release_tag }}"
+          $osId = "windows-x64"
+          $tfm = "${{ matrix.tfm }}"
+          $name = "c-wspp-websocket-sharp_${tag}_${osId}_${tfm}"
+          $zipName = "$name.zip"
+
+          $src = Join-Path $PWD "websocket-sharp/bin/Release/$tfm"
+          $buildDir = Join-Path $PWD "build"
+          $pkgDir = Join-Path $buildDir $name
+          $zipPath = Join-Path $buildDir $zipName
+
+          if (Test-Path $pkgDir) { Remove-Item $pkgDir -Recurse -Force }
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+
+          Copy-Item (Join-Path $src '*') -Destination $pkgDir -Recurse -Force
+          Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force
+
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload zip to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          gh release upload "${{ needs.prepare-release.outputs.release_tag }}" "${{ steps.pack.outputs.zip_path }}" --clobber
+
+  build-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ["ubuntu-22.04", "ubuntu-24.04"]
+        tfm: ["netstandard2.0", "net35"]
+
+    name: build-linux ${{ matrix.os }} ${{ matrix.tfm }}
+    runs-on: ${{ matrix.os }}
+    needs: prepare-release
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup mono
+        if: ${{ matrix.tfm == 'net35' }}
+        run: |
+          sudo apt update -y
+          sudo apt install mono-complete -y
+
+      - name: Restore + clean
+        run: |
+          dotnet restore
+          dotnet clean
+
+      - name: Build websocket-sharp
         run: |
           dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }}
 
-      - name: Build websocket-sharp (macOS managed architecture)
-        if: ${{ startsWith(matrix.os_id, 'macos-') }}
+      - name: Create zip bundle
+        id: pack
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.prepare-release.outputs.release_tag }}"
+          OS_ID="linux-x64"
+          TFM="${{ matrix.tfm }}"
+          NAME="c-wspp-websocket-sharp_${TAG}_${OS_ID}_${TFM}"
+          ZIP_NAME="${NAME}.zip"
+
+          SRC="websocket-sharp/bin/Release/${TFM}"
+          BUILD_DIR="build"
+          PKG_DIR="${BUILD_DIR}/${NAME}"
+          ZIP_PATH="${BUILD_DIR}/${ZIP_NAME}"
+
+          rm -rf "${PKG_DIR}" "${ZIP_PATH}"
+          mkdir -p "${PKG_DIR}"
+          cp -R "${SRC}/." "${PKG_DIR}/"
+          (cd "${BUILD_DIR}" && zip -r "${ZIP_NAME}" "${NAME}")
+
+          echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload zip to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "${{ needs.prepare-release.outputs.release_tag }}" "${{ steps.pack.outputs.zip_path }}" --clobber
+
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - managed_arch: x64
+            os_id: macos-x64
+          - managed_arch: arm64
+            os_id: macos-arm64
+        tfm: ["netstandard2.0", "net35"]
+
+    name: build-macos ${{ matrix.os_id }} ${{ matrix.tfm }}
+    runs-on: macos-15
+    needs: prepare-release
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore + clean
+        run: |
+          dotnet restore
+          dotnet clean
+
+      - name: Build websocket-sharp (managed arch)
         run: |
           dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.managed_arch }}
 
-      - name: Download universal macOS native artifact
-        if: ${{ startsWith(matrix.os_id, 'macos-') }}
-        uses: actions/download-artifact@v4
-        with:
-          name: macos-universal-native
-          path: build/native-macos-universal
-
-      - name: Inject universal macOS native library
-        if: ${{ startsWith(matrix.os_id, 'macos-') }}
+      - name: Build universal macOS native library
         shell: bash
         run: |
-          cp -f build/native-macos-universal/c-wspp-macos-universal.dylib "websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib"
-
-      - name: Prepare package metadata
-        id: meta
-        shell: pwsh
-        run: |
-          $version = "${{ github.ref_name }}"
-          if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "refs/heads/main") {
-            $version = "dev-${{ github.run_number }}"
-          }
-          $zipName = "c-wspp-websocket-sharp_${version}_${{ matrix.os_id }}_${{ matrix.tfm }}.zip"
-          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          set -euo pipefail
+          cargo build --release --manifest-path c-wspp-rs/Cargo.toml --target aarch64-apple-darwin
+          cargo build --release --manifest-path c-wspp-rs/Cargo.toml --target x86_64-apple-darwin
+          lipo -create \
+            c-wspp-rs/target/aarch64-apple-darwin/release/libc_wspp_rs.dylib \
+            c-wspp-rs/target/x86_64-apple-darwin/release/libc_wspp_rs.dylib \
+            -output websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib
+          file websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib
 
       - name: Create zip bundle
-        shell: pwsh
+        id: pack
+        shell: bash
         run: |
-          $src = Join-Path $PWD "websocket-sharp/bin/Release/${{ matrix.tfm }}"
-          $dstDir = Join-Path $PWD "build"
-          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
-          $zipPath = Join-Path $dstDir "${{ steps.meta.outputs.zip_name }}"
-          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-          Compress-Archive -Path (Join-Path $src '*') -DestinationPath $zipPath -Force
-          Write-Host "Created $zipPath"
+          set -euo pipefail
+          TAG="${{ needs.prepare-release.outputs.release_tag }}"
+          OS_ID="${{ matrix.os_id }}"
+          TFM="${{ matrix.tfm }}"
+          NAME="c-wspp-websocket-sharp_${TAG}_${OS_ID}_${TFM}"
+          ZIP_NAME="${NAME}.zip"
 
-      - name: Upload zip artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.meta.outputs.zip_name }}
-          path: build/${{ steps.meta.outputs.zip_name }}
-          if-no-files-found: error
+          SRC="websocket-sharp/bin/Release/${TFM}"
+          BUILD_DIR="build"
+          PKG_DIR="${BUILD_DIR}/${NAME}"
+          ZIP_PATH="${BUILD_DIR}/${ZIP_NAME}"
+
+          rm -rf "${PKG_DIR}" "${ZIP_PATH}"
+          mkdir -p "${PKG_DIR}"
+          cp -R "${SRC}/." "${PKG_DIR}/"
+          (cd "${BUILD_DIR}" && zip -r "${ZIP_NAME}" "${NAME}")
+
+          echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload zip to draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "${{ needs.prepare-release.outputs.release_tag }}" "${{ steps.pack.outputs.zip_path }}" --clobber
