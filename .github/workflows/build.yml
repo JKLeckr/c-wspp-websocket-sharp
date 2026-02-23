@@ -52,16 +52,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - managed_arch: x64
-            os_id: windows-x64
-            rid_dir: win-x64
-          - managed_arch: x86
-            os_id: windows-x86
-            rid_dir: win-x86
+        os:
+          - {managed_arch: x64, os_id: windows-x64, rid_dir: win-x64}
         tfm: ["netstandard2.0", "net35"]
+        include:
+          - arch: {managed_arch: x86, os_id: windows-x86, rid_dir: win-x86}
+            tfm: ["net35"]
 
-    name: build-windows ${{ matrix.os_id }} ${{ matrix.tfm }}
+    name: build-windows ${{ matrix.os.os_id }} ${{ matrix.tfm }}
     runs-on: windows-latest
     needs: prepare-release
     permissions:
@@ -92,7 +90,7 @@ jobs:
 
       - name: Build websocket-sharp
         run: |
-          dotnet build .\websocket-sharp\websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.managed_arch }}
+          dotnet build .\websocket-sharp\websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.os.managed_arch }}
 
       - name: Generate c-wspp-rs third-party license manifest
         shell: pwsh
@@ -107,9 +105,9 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ needs.prepare-release.outputs.release_tag }}"
-          $osId = "${{ matrix.os_id }}"
+          $osId = "${{ matrix.os.os_id }}"
           $tfm = "${{ matrix.tfm }}"
-          $ridDir = "${{ matrix.rid_dir }}"
+          $ridDir = "${{ matrix.os.rid_dir }}"
           $name = "c-wspp-websocket-sharp_${tag}_${osId}_${tfm}"
           $zipName = "$name.zip"
 
@@ -158,8 +156,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ["ubuntu-22.04", "ubuntu-24.04"]
+        os: ["ubuntu-24.04"]
         tfm: ["netstandard2.0", "net35"]
+        include:
+          - os: "ubuntu-22.04"
+            tfm: [net35]
 
     name: build-linux ${{ matrix.os }} ${{ matrix.tfm }}
     runs-on: ${{ matrix.os }}
@@ -269,7 +270,7 @@ jobs:
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          target: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Setup Rust tools
         uses: baptiste0928/cargo-install@v3
@@ -310,12 +311,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - managed_arch: x64
-            os_id: macos-x86_64
-          - managed_arch: arm64
-            os_id: macos-arm64
+        os:
+          - {managed_arch: arm64, os_id: macos-arm64}
         tfm: ["netstandard2.0", "net35"]
+        include:
+          - arch: {managed_arch: x64, os_id: macos-x86_64}
+            tfm: ["net35"]
 
     name: build-macos ${{ matrix.os_id }} ${{ matrix.tfm }}
     runs-on: macos-15
@@ -342,7 +343,7 @@ jobs:
 
       - name: Build websocket-sharp (managed arch)
         run: |
-          dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.managed_arch }}
+          dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.os.managed_arch }}
 
       - name: Download prepare-macos artifacts
         uses: actions/download-artifact@v4
@@ -356,9 +357,9 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ needs.prepare-release.outputs.release_tag }}"
-          OS_ID="${{ matrix.os_id }}"
+          OS_ID="${{ matrix.os.os_id }}"
           TFM="${{ matrix.tfm }}"
-          MANAGED_ARCH="${{ matrix.managed_arch }}"
+          MANAGED_ARCH="${{ matrix.os.managed_arch }}"
           RID_DIR="osx-${MANAGED_ARCH}"
           NAME="c-wspp-websocket-sharp_${TAG}_${OS_ID}_${TFM}"
           ZIP_NAME="${NAME}.zip"
