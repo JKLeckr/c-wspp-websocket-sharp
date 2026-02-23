@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace WebSocketSharp
 {
@@ -63,7 +64,25 @@ namespace WebSocketSharp
             {
                 return fallback;
             }
-            return Marshal.PtrToStringAnsi(data);
+            try
+            {
+                int len = 0;
+                while (Marshal.ReadByte(data, len) != 0)
+                {
+                    len++;
+                }
+                if (len == 0)
+                {
+                    return string.Empty;
+                }
+                byte[] bytes = new byte[len];
+                Marshal.Copy(data, bytes, 0, len);
+                return Encoding.UTF8.GetString(bytes, 0, bytes.Length);
+            }
+            catch (Exception)
+            {
+                return fallback;
+            }
         }
     }
 }

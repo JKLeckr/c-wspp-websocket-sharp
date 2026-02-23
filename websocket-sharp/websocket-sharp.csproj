@@ -8,4 +8,85 @@
     <PlatformTargets>x64;x86;ARM64</PlatformTargets>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <WsppRsProjectDir>$(MSBuildProjectDirectory)\..\c-wspp-rs</WsppRsProjectDir>
+    <RootProjectDir>$(MSBuildProjectDirectory)\..</RootProjectDir>
+    <WsppRsCargoProfile Condition="'$(Configuration)' == 'Release'">release</WsppRsCargoProfile>
+    <WsppRsCargoProfile Condition="'$(WsppRsCargoProfile)' == ''">debug</WsppRsCargoProfile>
+    <WsppRsCargoReleaseArg Condition="'$(WsppRsCargoProfile)' == 'release'">--release</WsppRsCargoReleaseArg>
+    <WsppRsCargoReleaseArg Condition="'$(WsppRsCargoReleaseArg)' == ''"></WsppRsCargoReleaseArg>
+    <WsppRsNativeSourceName Condition="$([MSBuild]::IsOSPlatform('Windows'))">c_wspp_rs.dll</WsppRsNativeSourceName>
+    <WsppRsNativeSourceName Condition="$([MSBuild]::IsOSPlatform('Linux'))">libc_wspp_rs.so</WsppRsNativeSourceName>
+    <WsppRsNativeSourceName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libc_wspp_rs.dylib</WsppRsNativeSourceName>
+    <WsppRsArchNix Condition="'$(PlatformTarget)' == 'x86'">x86</WsppRsArchNix>
+    <WsppRsArchNix Condition="'$(WsppRsArchNix)' == ''">amd64</WsppRsArchNix>
+    <WsppRsNativeDestName Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(PlatformTarget)' == 'x86'">c-wspp-win32.dll</WsppRsNativeDestName>
+    <WsppRsNativeDestName Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(WsppRsNativeDestName)' == ''">c-wspp-win64.dll</WsppRsNativeDestName>
+    <WsppRsNativeDestName Condition="$([MSBuild]::IsOSPlatform('Linux'))">c-wspp-linux-$(WsppRsArchNix).so</WsppRsNativeDestName>
+    <WsppRsNativeDestName Condition="$([MSBuild]::IsOSPlatform('OSX'))">c-wspp-macos-universal.dylib</WsppRsNativeDestName>
+    <WsppRsNativeSourcePath>$(WsppRsProjectDir)\target\$(WsppRsCargoProfile)\$(WsppRsNativeSourceName)</WsppRsNativeSourcePath>
+    <RootLicensePath>$(RootProjectDir)\LICENSE.txt</RootLicensePath>
+    <WsppRsLicensePath>$(WsppRsProjectDir)\LICENSE</WsppRsLicensePath>
+    <WsppRsThirdPartyLicensePath>$(WsppRsProjectDir)\LICENSE.3rd-party.txt</WsppRsThirdPartyLicensePath>
+  </PropertyGroup>
+
+  <Target Name="BuildWsppRsNative"
+          BeforeTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(TargetFramework)' != ''">
+    <Exec WorkingDirectory="$(WsppRsProjectDir)"
+          Command="cargo build $(WsppRsCargoReleaseArg)" />
+  </Target>
+
+  <Target Name="CopyWsppRsNative"
+          AfterTargets="Build"
+          DependsOnTargets="BuildWsppRsNative"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(TargetFramework)' != '' and Exists('$(WsppRsNativeSourcePath)')">
+    <PropertyGroup>
+      <WsppRsManagedOutputDir Condition="'$(TargetDir)' != ''">$(TargetDir)</WsppRsManagedOutputDir>
+      <WsppRsManagedOutputDir Condition="'$(WsppRsManagedOutputDir)' == '' and '$(TargetPath)' != ''">$([System.IO.Path]::GetDirectoryName('$(TargetPath)'))\</WsppRsManagedOutputDir>
+      <WsppRsNativeDestPath>$(WsppRsManagedOutputDir)$(WsppRsNativeDestName)</WsppRsNativeDestPath>
+    </PropertyGroup>
+    <MakeDir Directories="$(WsppRsManagedOutputDir)" />
+    <Message Importance="high" Text="Copying native library $(WsppRsNativeSourcePath) -> $(WsppRsNativeDestPath)" />
+    <Copy SourceFiles="$(WsppRsNativeSourcePath)"
+          DestinationFiles="$(WsppRsNativeDestPath)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CleanWsppRsNative"
+          AfterTargets="Clean"
+          Condition="'$(DesignTimeBuild)' != 'true' and ( '$(IsCrossTargetingBuild)' == 'true' or '$(TargetFramework)' != '' ) and Exists('$(WsppRsProjectDir)\Cargo.toml')">
+    <Message Importance="high" Text="Cleaning Rust native build output in $(WsppRsProjectDir)" />
+    <Exec WorkingDirectory="$(WsppRsProjectDir)"
+          Command="cargo clean" />
+  </Target>
+
+  <Target Name="CopyWsppRsLicenses"
+          AfterTargets="Build"
+          Condition="'$(DesignTimeBuild)' != 'true' and '$(IsCrossTargetingBuild)' != 'true' and '$(TargetFramework)' != ''">
+    <PropertyGroup>
+      <WsppRsManagedOutputDir Condition="'$(TargetDir)' != ''">$(TargetDir)</WsppRsManagedOutputDir>
+      <WsppRsManagedOutputDir Condition="'$(WsppRsManagedOutputDir)' == '' and '$(TargetPath)' != ''">$([System.IO.Path]::GetDirectoryName('$(TargetPath)'))\</WsppRsManagedOutputDir>
+    </PropertyGroup>
+    <MakeDir Directories="$(WsppRsManagedOutputDir)" />
+
+    <ItemGroup>
+      <BundledLicense Include="$(RootLicensePath)" Condition="Exists('$(RootLicensePath)')">
+        <DestName>LICENSE.txt</DestName>
+      </BundledLicense>
+      <BundledLicense Include="$(WsppRsLicensePath)" Condition="Exists('$(WsppRsLicensePath)')">
+        <DestName>LICENSE.c-wspp-rs.txt</DestName>
+      </BundledLicense>
+      <BundledLicense Include="$(WsppRsThirdPartyLicensePath)" Condition="Exists('$(WsppRsThirdPartyLicensePath)')">
+        <DestName>LICENSE.c-wspp-rs.3rd-party.txt</DestName>
+      </BundledLicense>
+    </ItemGroup>
+
+    <Message Importance="high" Text="Bundling license %(BundledLicense.Identity) -> $(WsppRsManagedOutputDir)%(BundledLicense.DestName)" Condition="'@(BundledLicense)' != ''" />
+    <Copy SourceFiles="@(BundledLicense)"
+          DestinationFiles="@(BundledLicense->'$(WsppRsManagedOutputDir)%(DestName)')"
+          SkipUnchangedFiles="true"
+          Condition="'@(BundledLicense)' != ''" />
+  </Target>
+
 </Project>

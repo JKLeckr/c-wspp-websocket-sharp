@@ -4,8 +4,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
 using WebSocketSharp.Net;
 
@@ -16,6 +14,18 @@ namespace WebSocketSharp
 {
     public partial class WebSocket : IDisposable
     {
+        public enum NativeLogLevel
+        {
+            Off = 0,
+            Error = 1,
+            Warn = 2,
+            Info = 3,
+            Debug = 4,
+            Trace = 5,
+        }
+
+        public delegate void NativeLogHandler(NativeLogLevel level, string message);
+
         IWSPP wspp;
         private Uri uri;
         private WebSocketWorker worker = null;
@@ -30,6 +40,60 @@ namespace WebSocketSharp
         static int _lastId = 0;
         static private readonly object _directoryLock = new object();
         private static string _directory = null;
+        private static readonly object _nativeLogLock = new object();
+        private static NativeLogHandler _nativeLogger = null;
+        private static NativeLogLevel _nativeLogVerbosity = NativeLogLevel.Off;
+        private static bool _nativeLoggingSupported = false;
+        private static IWSPP _nativeLogBackend = null;
+
+        public static NativeLogHandler NativeLogger
+        {
+            get
+            {
+                lock (_nativeLogLock)
+                {
+                    return _nativeLogger;
+                }
+            }
+            set
+            {
+                lock (_nativeLogLock)
+                {
+                    _nativeLogger = value;
+                    apply_native_log_settings_locked();
+                }
+            }
+        }
+
+        public static NativeLogLevel NativeLogVerbosity
+        {
+            get
+            {
+                lock (_nativeLogLock)
+                {
+                    return _nativeLogVerbosity;
+                }
+            }
+            set
+            {
+                lock (_nativeLogLock)
+                {
+                    _nativeLogVerbosity = value;
+                    apply_native_log_settings_locked();
+                }
+            }
+        }
+
+        public static bool NativeLoggingSupported
+        {
+            get
+            {
+                lock (_nativeLogLock)
+                {
+                    return _nativeLoggingSupported;
+                }
+            }
+        }
 
         public event EventHandler OnOpen;
 
@@ -87,6 +151,7 @@ namespace WebSocketSharp
             wspp = wspp_new_from(uriString, Directory);
             if (wspp == null)
                 throw new InvalidOperationException("Could not initialize wspp");
+            register_native_log_backend(wspp);
             SetHandlers();
         }
 
@@ -108,7 +173,66 @@ namespace WebSocketSharp
             wspp = wspp_new_from(uriString, Directory);
             if (wspp == null)
                 throw new InvalidOperationException("Could not initialize wspp");
+            register_native_log_backend(wspp);
             SetHandlers();
+        }
+
+        private static NativeLogLevel clamp_native_log_level(int level)
+        {
+            if (level < (int)NativeLogLevel.Off)
+            {
+                return NativeLogLevel.Off;
+            }
+            if (level > (int)NativeLogLevel.Trace)
+            {
+                return NativeLogLevel.Trace;
+            }
+            return (NativeLogLevel)level;
+        }
+
+        private static void native_log_bridge(int level, string message)
+        {
+            NativeLogHandler logger = _nativeLogger;
+            if (logger == null)
+            {
+                return;
+            }
+            try
+            {
+                logger(clamp_native_log_level(level), message ?? "");
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private static void register_native_log_backend(IWSPP backend)
+        {
+            lock (_nativeLogLock)
+            {
+                _nativeLogBackend = backend;
+                apply_native_log_settings_locked();
+            }
+        }
+
+        private static void apply_native_log_settings_locked()
+        {
+            if (_nativeLogBackend == null)
+            {
+                _nativeLoggingSupported = false;
+                return;
+            }
+
+            try
+            {
+                bool levelOk = _nativeLogBackend.try_set_loglevel((int)_nativeLogVerbosity);
+                bool handlerOk = _nativeLogBackend.try_set_log_handler(_nativeLogger == null ? null : native_log_bridge);
+                _nativeLoggingSupported = levelOk && handlerOk;
+            }
+            catch (Exception)
+            {
+                _nativeLoggingSupported = false;
+            }
         }
 
         public void Dispose()
@@ -171,8 +295,16 @@ namespace WebSocketSharp
                 dispatcher = null;
 
                 debug("wspp_delete");
-                if (wspp != null)
-                    wspp.delete(); // TODO; dispose instead
+                if (old != null)
+                    old.delete(); // TODO; dispose instead
+
+                lock (_nativeLogLock)
+                {
+                    if (ReferenceEquals(_nativeLogBackend, old))
+                    {
+                        _nativeLogBackend = null;
+                    }
+                }
             }
         }
 
@@ -291,7 +423,25 @@ namespace WebSocketSharp
 
             debug("Error: " + message);
             ErrorEventArgs e = new ErrorEventArgs(message, exception);
-            dispatcher.Enqueue(e);
+            if (dispatcher != null)
+            {
+                dispatcher.Enqueue(e);
+            }
+        }
+
+        private static string wspp_error_text(WsppRes res)
+        {
+            string known = Enum.GetName(typeof(WsppRes), res);
+            if (!string.IsNullOrEmpty(known))
+            {
+                return known;
+            }
+            return "Unknown error (" + ((int)res).ToString() + ")";
+        }
+
+        private static void throw_wspp_error(string action, WsppRes res)
+        {
+            throw new Exception(action + " failed: " + wspp_error_text(res));
         }
 
         private void pingBlocking(byte[] data, int timeout=15000)
@@ -393,7 +543,27 @@ namespace WebSocketSharp
             }
 
             debug("wspp_connect");
-            wspp.connect();
+            WsppRes connectRes = wspp.connect();
+            if (connectRes != WsppRes.OK)
+            {
+                readyState = WebSocketState.Closed;
+                lastError = wspp_error_text(connectRes);
+                lock (dispatcherLock)
+                {
+                    if (dispatcher != null)
+                    {
+                        try
+                        {
+                            dispatcher.Dispose();
+                        }
+                        catch (Exception)
+                        {
+                        }
+                        dispatcher = null;
+                    }
+                }
+                throw_wspp_error("Connect", connectRes);
+            }
 
             if (worker == null) {
                 // start worker after queuing connect
@@ -425,7 +595,11 @@ namespace WebSocketSharp
             debug("ReadyState = Closing");
             readyState = WebSocketState.Closing;
             sdebug("wspp_close(" + code + ", \"" + reason + "\')");
-            wspp.close(code, reason);
+            WsppRes closeRes = wspp.close(code, reason);
+            if (closeRes != WsppRes.OK)
+            {
+                throw_wspp_error("Close", closeRes);
+            }
 
             if (worker.IsCurrentThread) {
                 throw new InvalidOperationException("Can't wait for reply from worker thread");
@@ -455,7 +629,11 @@ namespace WebSocketSharp
             debug("ReadyState = Closing");
             readyState = WebSocketState.Closing;
             sdebug("wspp_close(" + code + ", \"" + reason + "\')");
-            wspp.close(code, reason);
+            WsppRes closeRes = wspp.close(code, reason);
+            if (closeRes != WsppRes.OK)
+            {
+                throw_wspp_error("CloseAsync", closeRes);
+            }
         }
 
         public WebSocketState ReadyState {
@@ -518,7 +696,7 @@ namespace WebSocketSharp
         {
             var res = wspp.send(message);
             if (res != WsppRes.OK)
-                throw new Exception(Enum.GetName(typeof(WsppRes), res) ?? "Unknown error");
+                throw_wspp_error("Send(text)", res);
             debug("Message sent");
         }
 
@@ -526,7 +704,7 @@ namespace WebSocketSharp
         {
             var res = wspp.send(data);
             if (res != WsppRes.OK)
-                throw new Exception(Enum.GetName(typeof(WsppRes), res) ?? "Unknown error");
+                throw_wspp_error("Send(binary)", res);
             debug("Message sent");
         }
 
@@ -556,7 +734,7 @@ namespace WebSocketSharp
 
             var res = wspp.ping(data);
             if (res != WsppRes.OK)
-                throw new Exception(Enum.GetName(typeof(WsppRes), res) ?? "Unknown error");
+                throw_wspp_error("Ping", res);
             debug("Ping sent");
         }
 
@@ -588,7 +766,7 @@ namespace WebSocketSharp
             // TODO: set state to closed here instead (see comment in WebSocket.native.cs)
 
         #if !NO_WEBSOCKET_MULTI_THREADED_CLOSE
-            if (OnError != null) {
+            if (OnClose != null) {
                 new Thread(new ThreadStart(delegate
                 {
                     Thread.Sleep(1); // prefer disposing first

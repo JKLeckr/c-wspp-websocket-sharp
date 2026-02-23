@@ -20,8 +20,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Binary distributions may contain parts of OpenSSL and other software.
-For OpenSSL see https://www.openssl.org/source/apache-license-2.0.txt
-See c-wspp and subfolders on
-https://github.com/black-sliver/c-wspp-websocket-sharp/
-for more details and individual licenses.
+Binary distributions may include native websocket libraries and their
+third-party dependencies.
+
+When bundled with c-wspp-rs, see:
+- c-wspp-rs/LICENSE
+- c-wspp-rs/LICENSE.3rd-party.txt
+
+Some distributions may also include c-wspp-based binaries and their
+dependencies. See the corresponding bundled license files for details.

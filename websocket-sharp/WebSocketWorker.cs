@@ -57,24 +57,65 @@ namespace WebSocketSharp
 
         private void work()
         {
-            while (!_stop && !_wspp.stopped())
+            while (!_stop)
             {
+                bool stopped;
+                try
+                {
+                    stopped = _wspp.stopped();
+                }
+                catch (Exception ex)
+                {
+                    debug("stopped() failed: " + ex.Message);
+                    break;
+                }
+                if (stopped)
+                {
+                    break;
+                }
+
                 // sadly we can't use wspp_run() because .net will not run finalizers then
-                _wspp.poll();
+                try
+                {
+                    _wspp.poll();
+                }
+                catch (Exception ex)
+                {
+                    debug("poll() failed: " + ex.Message);
+                    break;
+                }
                 Thread.Sleep(1);
             }
 
-            if (!_wspp.stopped())
+            bool isStopped = true;
+            try
+            {
+                isStopped = _wspp.stopped();
+            }
+            catch (Exception ex)
+            {
+                debug("stopped() failed after loop: " + ex.Message);
+            }
+
+            if (!isStopped)
                 debug("stopping");
 
             // wait up to a second for closing handshake
             for (int i=0; i<1000; i++)
             {
-                if (_wspp.stopped())
+                try
                 {
+                    if (_wspp.stopped())
+                    {
+                        break;
+                    }
+                    _wspp.poll();
+                }
+                catch (Exception ex)
+                {
+                    debug("polling while stopping failed: " + ex.Message);
                     break;
                 }
-                _wspp.poll();
                 Thread.Sleep(1);
             }
             debug("stopped");

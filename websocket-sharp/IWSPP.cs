@@ -6,6 +6,7 @@ namespace WebSocketSharp
     internal delegate void OnErrorHandler(string msg); // TODO: errorCode
     internal delegate void OnMessageHandler(byte[] data, int opCode);
     internal delegate void OnPongHandler(byte[] data);
+    internal delegate void OnNativeLogHandler(int level, string msg);
 
     /// <summary>
     /// c-wspp native call restult codes
@@ -14,6 +15,7 @@ namespace WebSocketSharp
     {
         OK = 0,
         InvalidState = 1,
+        InvalidArgument = 2,
         Unknown = -1,
     }
 
@@ -36,6 +38,9 @@ namespace WebSocketSharp
         void set_error_handler(OnErrorHandler callback);
         void set_message_handler(OnMessageHandler callback);
         void set_pong_handler(OnPongHandler callback);
+        bool supports_native_logging();
+        bool try_set_log_handler(OnNativeLogHandler callback);
+        bool try_set_loglevel(int level);
 
         /// <summary>
         /// Helper to set all handlers to null during shutdown.

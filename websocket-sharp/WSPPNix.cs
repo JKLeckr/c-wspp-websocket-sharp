@@ -13,6 +13,7 @@ namespace WebSocketSharp
         internal const CallingConvention CALLING_CONVENTION = CallingConvention.Cdecl;
 
         internal const string DLL_NAME = "c-wspp";
+        internal const string MACOS_UNIVERSAL_ARCH = "universal";
 
         [UnmanagedFunctionPointer(CALLING_CONVENTION)]
         internal delegate void OnOpenCallback();
@@ -24,6 +25,8 @@ namespace WebSocketSharp
         internal delegate void OnMessageCallback(IntPtr data, ulong len, int opCode);
         [UnmanagedFunctionPointer(CALLING_CONVENTION)]
         internal delegate void OnPongCallback(IntPtr data, ulong len);
+        [UnmanagedFunctionPointer(CALLING_CONVENTION)]
+        internal delegate void OnLogCallback(int level, IntPtr msg);
 
         [UnmanagedFunctionPointer(CALLING_CONVENTION)]
         internal delegate UIntPtr Wspp_new(IntPtr uri);
@@ -55,6 +58,10 @@ namespace WebSocketSharp
         internal delegate void Wspp_set_message_handler(UIntPtr ws, OnMessageCallback f);
         [UnmanagedFunctionPointer(CALLING_CONVENTION)]
         internal delegate void Wspp_set_pong_handler(UIntPtr ws, OnPongCallback f);
+        [UnmanagedFunctionPointer(CALLING_CONVENTION)]
+        internal delegate void Wspp_set_log_handler(OnLogCallback f);
+        [UnmanagedFunctionPointer(CALLING_CONVENTION)]
+        internal delegate void Wspp_set_loglevel(int level);
 
         UIntPtr _ws;
 
@@ -81,8 +88,12 @@ namespace WebSocketSharp
         static Wspp_set_error_handler wspp_set_error_handler;
         static Wspp_set_message_handler wspp_set_message_handler;
         static Wspp_set_pong_handler wspp_set_pong_handler;
+        static Wspp_set_log_handler wspp_set_log_handler;
+        static Wspp_set_loglevel wspp_set_loglevel;
 
         static IntPtr _dll;
+        static OnLogCallback _nativeLogCallback;
+        static OnNativeLogHandler _managedNativeLogHandler;
 
         private static readonly object _dllLock = new object();
 
@@ -138,8 +149,8 @@ namespace WebSocketSharp
                         {
                             dllPath += "/";
                         }
-                        // macos builds of c-wspp are Universal which work on both x86_64 and arm64
-                        string _arch = (platformId == 6) ? "universal" : arch;
+                        // macos builds are universal and intentionally shared across arm64 and x86_64.
+                        string _arch = (platformId == 6) ? MACOS_UNIVERSAL_ARCH : arch;
                         dllPath += DLL_NAME + variant + "-" + platform + "-" + _arch + ext;
 
                         _dll = dl.Open(dllPath, 0x2);
@@ -159,7 +170,7 @@ namespace WebSocketSharp
                             if (platformId != 6)
                             {
                                 platformId = 6; // MacOSX
-                                variant = ""; // there is currently only 1 variant on macos
+                                variant = ""; // macos always resolves universal builds in this loader
                                 continue;
                             }
 
@@ -181,6 +192,16 @@ namespace WebSocketSharp
                         wspp_set_error_handler = (Wspp_set_error_handler)Marshal.GetDelegateForFunctionPointer(dl.Sym(_dll, "wspp_set_error_handler"), typeof(Wspp_set_error_handler));
                         wspp_set_message_handler = (Wspp_set_message_handler)Marshal.GetDelegateForFunctionPointer(dl.Sym(_dll, "wspp_set_message_handler"), typeof(Wspp_set_message_handler));
                         wspp_set_pong_handler = (Wspp_set_pong_handler)Marshal.GetDelegateForFunctionPointer(dl.Sym(_dll, "wspp_set_pong_handler"), typeof(Wspp_set_pong_handler));
+                        IntPtr setLogHandlerSym = dl.Sym(_dll, "wspp_set_log_handler");
+                        if (setLogHandlerSym != IntPtr.Zero)
+                        {
+                            wspp_set_log_handler = (Wspp_set_log_handler)Marshal.GetDelegateForFunctionPointer(setLogHandlerSym, typeof(Wspp_set_log_handler));
+                        }
+                        IntPtr setLoglevelSym = dl.Sym(_dll, "wspp_set_loglevel");
+                        if (setLoglevelSym != IntPtr.Zero)
+                        {
+                            wspp_set_loglevel = (Wspp_set_loglevel)Marshal.GetDelegateForFunctionPointer(setLoglevelSym, typeof(Wspp_set_loglevel));
+                        }
 
                         if (wspp_run == null || wspp_new == null)
                         {
@@ -213,7 +234,7 @@ namespace WebSocketSharp
             if (callback != null)
             {
                 _openHandler = delegate {
-                    callback();
+                    try { callback(); } catch (Exception) { }
                 };
             }
             wspp_set_open_handler(_ws, _openHandler);
@@ -225,7 +246,7 @@ namespace WebSocketSharp
             if (callback != null)
             {
                 _closeHandler = delegate {
-                    callback();
+                    try { callback(); } catch (Exception) { }
                 };
             }
             wspp_set_close_handler(_ws, _closeHandler);
@@ -240,7 +261,7 @@ namespace WebSocketSharp
                     if (_ws == UIntPtr.Zero)
                         return;
 
-                    callback(Native.ToString(data, "Unknown"));
+                    try { callback(Native.ToString(data, "Unknown")); } catch (Exception) { }
                 };
             }
             wspp_set_error_handler(_ws, _errorHandler);
@@ -258,7 +279,7 @@ namespace WebSocketSharp
                     if (len > Int32.MaxValue)
                         return;
 
-                    callback(Native.ToByteArray(data, (int)len), opCode);
+                    try { callback(Native.ToByteArray(data, (int)len), opCode); } catch (Exception) { }
                 };
             }
             wspp_set_message_handler(_ws, _messageHandler);
@@ -276,10 +297,26 @@ namespace WebSocketSharp
                     if (len > Int32.MaxValue)
                         return;
 
-                    callback(Native.ToByteArray(data, (int)len));
+                    try { callback(Native.ToByteArray(data, (int)len)); } catch (Exception) { }
                 };
             }
             wspp_set_pong_handler(_ws, _pongHandler);
+        }
+
+        private static void HandleNativeLog(int level, IntPtr msg)
+        {
+            OnNativeLogHandler managed = _managedNativeLogHandler;
+            if (managed == null)
+            {
+                return;
+            }
+            try
+            {
+                managed(level, Native.ToString(msg, ""));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         public WsppRes connect()
@@ -336,6 +373,43 @@ namespace WebSocketSharp
         {
             validate();
             return wspp_stopped(_ws);
+        }
+
+        public bool supports_native_logging()
+        {
+            return wspp_set_log_handler != null && wspp_set_loglevel != null;
+        }
+
+        public bool try_set_log_handler(OnNativeLogHandler callback)
+        {
+            _managedNativeLogHandler = callback;
+            if (wspp_set_log_handler == null)
+            {
+                return false;
+            }
+
+            if (callback == null)
+            {
+                wspp_set_log_handler(null);
+                return true;
+            }
+
+            if (_nativeLogCallback == null)
+            {
+                _nativeLogCallback = HandleNativeLog;
+            }
+            wspp_set_log_handler(_nativeLogCallback);
+            return true;
+        }
+
+        public bool try_set_loglevel(int level)
+        {
+            if (wspp_set_loglevel == null)
+            {
+                return false;
+            }
+            wspp_set_loglevel(level);
+            return true;
         }
 
         public void clear_handlers()

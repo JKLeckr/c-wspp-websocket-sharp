@@ -4,136 +4,72 @@ on:
   workflow_dispatch:
   push:
     tags:
-      - 'v*'
-      - '!*norel*'
+      - "v*"
+      - "!*norel*"
 
 jobs:
-  prep-release:
-    name: Setup Environment
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Set Env
-        id: env
-        run: |
-          export RELEASE_VERSION="${GITHUB_REF#refs/*/}"
-          export P_NAME="c-wspp-websocket-sharp"
-          export FILE_PRE="${P_NAME}_${RELEASE_VERSION}"
-
-          echo "RELEASE_VERSION=$RELEASE_VERSION" >> $GITHUB_OUTPUT
-          echo "P_NAME=$P_NAME" >> $GITHUB_OUTPUT
-          echo "FILE_PRE=$FILE_PRE" >> $GITHUB_OUTPUT
-
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-
-      - name: Generate compiled LICENSE
-        id: genlicense
-        run: |
-          python scripts/genlicense.py ./LICENSE.txt ./c-wspp/LICENSE.third-party >> "$GITHUB_OUTPUT"
-
-    outputs:
-      env_relv: ${{ steps.env.outputs.relv }}
-      env_pname: ${{ steps.env.outputs.pname }}
-      env_fpre: ${{ steps.env.outputs.fpre }}
-      license: ${{ steps.genlicense.outputs.license }}
-
-  build-win:
+  build:
     strategy:
+      fail-fast: false
       matrix:
-        arch: { sys: ucrt64, env: ucrt-x86_64, net: x64 }
-        tgt: [ netstandard2.0, net35 ]
         include:
-          - arch: { sys: mingw32, env: i686, net: x86 }
-            tgt: [ net35 ]
+          - runner: windows-latest
+            os_id: windows-x64
+          - runner: ubuntu-24.04
+            os_id: linux-x64
+          - runner: macos-13
+            os_id: macos-x64
+          - runner: macos-15
+            os_id: macos-arm64
+        tfm: ["netstandard2.0", "net35"]
 
-    name: Build Windows ${{matrix.net}}
-    runs-on: windows-latest
-    needs: prep-release
+    name: build ${{ matrix.os_id }} ${{ matrix.tfm }}
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - uses: msys2/setup-msys2@v2
-        with:
-          msystem: ${{matrix.sys}}
-          update: true
-          install: >-
-            mingw-w64-${{matrix.env}}-gcc
-            mingw-w64-${{matrix.env}}-cmake
-            mingw-w64-${{matrix.env}}-openssl
-
-      - name: Build c-wspp
-        working-directory: c-wspp
-        run: |
-          mkdir build
-          cd build
-          cmake ..  -DCMAKE_POLICY_VERSION_MINIMUM=3.22
-          ninja
-        shell: msys2 {0}
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
 
-      - name: Setup Project
+      - name: Restore + clean
         run: |
           dotnet restore
           dotnet clean
 
-      - name: Build Project
-        working-directory: ${{ env.MOD_NAME }}
+      - name: Build websocket-sharp
         run: |
-          dotnet build --arch ${{matrix.net}} .\websocket-sharp
+          dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }}
 
-      - name:
+      - name: Prepare package metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          if ([string]::IsNullOrWhiteSpace($version) -or $version -eq "refs/heads/main") {
+            $version = "dev-${{ github.run_number }}"
+          }
+          $zipName = "c-wspp-websocket-sharp_${version}_${{ matrix.os_id }}_${{ matrix.tfm }}.zip"
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
 
-  build-mac:
-    strategy:
-      matrix:
-        arch:
-          - { sys: x86_64, net: x64 }
-        tgt: [ netstandard2.0, net35 ]
+      - name: Create zip bundle
+        shell: pwsh
+        run: |
+          $src = Join-Path $PWD "websocket-sharp/bin/Release/${{ matrix.tfm }}"
+          $dstDir = Join-Path $PWD "build"
+          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+          $zipPath = Join-Path $dstDir "${{ steps.meta.outputs.zip_name }}"
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path (Join-Path $src '*') -DestinationPath $zipPath -Force
+          Write-Host "Created $zipPath"
 
-    name: Build macOS x86_64
-    runs-on: macos-15
-    needs: prep-release
-
-    steps:
-      - uses: actions/checkout@v4
+      - name: Upload zip artifact
+        uses: actions/upload-artifact@v4
         with:
-          submodules: recursive
-
-      - name: Setup dotnet
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-
-  build-linux:
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
-        arch:
-          - { sys: amd64, net: x64 }
-        tgt: [ netstandard2.0, net35 ]
-
-    name: Build ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    needs: prep-release
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - name: Setup dotnet
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
+          name: ${{ steps.meta.outputs.zip_name }}
+          path: build/${{ steps.meta.outputs.zip_name }}
+          if-no-files-found: error

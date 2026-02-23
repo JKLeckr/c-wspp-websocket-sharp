@@ -24,6 +24,8 @@ namespace WebSocketSharp
         internal delegate void OnMessageCallback(IntPtr data, ulong len, int opCode);
         [UnmanagedFunctionPointer(CALLING_CONVENTION)]
         internal delegate void OnPongCallback(IntPtr data, ulong len);
+        [UnmanagedFunctionPointer(CALLING_CONVENTION)]
+        internal delegate void OnLogCallback(int level, IntPtr msg);
 
         [DllImport(DLL_NAME, CharSet=CharSet.Ansi, CallingConvention=CALLING_CONVENTION)]
         internal static extern UIntPtr wspp_new(IntPtr uri);
@@ -55,6 +57,10 @@ namespace WebSocketSharp
         internal static extern void wspp_set_message_handler(UIntPtr ws, OnMessageCallback f);
         [DllImport(DLL_NAME, CallingConvention=CALLING_CONVENTION)]
         internal static extern void wspp_set_pong_handler(UIntPtr ws, OnPongCallback f);
+        [DllImport(DLL_NAME, CallingConvention=CALLING_CONVENTION, EntryPoint="wspp_set_log_handler")]
+        internal static extern void wspp_set_log_handler(OnLogCallback f);
+        [DllImport(DLL_NAME, CallingConvention=CALLING_CONVENTION, EntryPoint="wspp_set_loglevel")]
+        internal static extern void wspp_set_loglevel(int level);
 
         UIntPtr _ws;
 
@@ -65,6 +71,11 @@ namespace WebSocketSharp
         OnMessageCallback _messageHandler;
         OnPongCallback _pongHandler;
 #pragma warning disable 0414
+
+        static readonly object _nativeLogLock = new object();
+        static bool _nativeLoggingUnavailable = false;
+        static OnLogCallback _nativeLogCallback;
+        static OnNativeLogHandler _managedNativeLogHandler;
 
         static public bool IsActivePlatform()
         {
@@ -96,7 +107,7 @@ namespace WebSocketSharp
             if (callback != null)
             {
                 _openHandler = delegate {
-                    callback();
+                    try { callback(); } catch (Exception) { }
                 };
             }
             wspp_set_open_handler(_ws, _openHandler);
@@ -108,7 +119,7 @@ namespace WebSocketSharp
             if (callback != null)
             {
                 _closeHandler = delegate {
-                    callback();
+                    try { callback(); } catch (Exception) { }
                 };
             }
             wspp_set_close_handler(_ws, _closeHandler);
@@ -123,7 +134,7 @@ namespace WebSocketSharp
                     if (_ws == UIntPtr.Zero)
                         return;
 
-                    callback(Native.ToString(data, "Unknown"));
+                    try { callback(Native.ToString(data, "Unknown")); } catch (Exception) { }
                 };
             }
             wspp_set_error_handler(_ws, _errorHandler);
@@ -141,7 +152,7 @@ namespace WebSocketSharp
                     if (len > Int32.MaxValue)
                         return;
 
-                    callback(Native.ToByteArray(data, (int)len), opCode);
+                    try { callback(Native.ToByteArray(data, (int)len), opCode); } catch (Exception) { }
                 };
             }
             wspp_set_message_handler(_ws, _messageHandler);
@@ -159,10 +170,26 @@ namespace WebSocketSharp
                     if (len > Int32.MaxValue)
                         return;
 
-                    callback(Native.ToByteArray(data, (int)len));
+                    try { callback(Native.ToByteArray(data, (int)len)); } catch (Exception) { }
                 };
             }
             wspp_set_pong_handler(_ws, _pongHandler);
+        }
+
+        private static void HandleNativeLog(int level, IntPtr msg)
+        {
+            OnNativeLogHandler managed = _managedNativeLogHandler;
+            if (managed == null)
+            {
+                return;
+            }
+            try
+            {
+                managed(level, Native.ToString(msg, ""));
+            }
+            catch (Exception)
+            {
+            }
         }
 
         public WsppRes connect()
@@ -218,6 +245,63 @@ namespace WebSocketSharp
         {
             validate();
             return wspp_stopped(_ws);
+        }
+
+        public bool supports_native_logging()
+        {
+            return !_nativeLoggingUnavailable;
+        }
+
+        public bool try_set_log_handler(OnNativeLogHandler callback)
+        {
+            lock (_nativeLogLock)
+            {
+                _managedNativeLogHandler = callback;
+                if (_nativeLoggingUnavailable)
+                {
+                    return false;
+                }
+
+                try
+                {
+                    if (callback == null)
+                    {
+                        wspp_set_log_handler(null);
+                    }
+                    else
+                    {
+                        if (_nativeLogCallback == null)
+                        {
+                            _nativeLogCallback = HandleNativeLog;
+                        }
+                        wspp_set_log_handler(_nativeLogCallback);
+                    }
+                    return true;
+                }
+                catch (EntryPointNotFoundException)
+                {
+                    _nativeLoggingUnavailable = true;
+                    return false;
+                }
+            }
+        }
+
+        public bool try_set_loglevel(int level)
+        {
+            if (_nativeLoggingUnavailable)
+            {
+                return false;
+            }
+            try
+            {
+                wspp_set_loglevel(level);
+                return true;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                _nativeLoggingUnavailable = true;
+                return false;
+            }
         }
 
         public void clear_handlers()

@@ -5,181 +5,132 @@ on:
     paths:
       - "**.cs"
       - "**.csproj"
-      - "c-wspp"
-      - '.github/workflows/test.yml'
+      - "c-wspp-rs/**"
+      - ".github/workflows/test.yml"
   pull_request:
     paths:
       - "**.cs"
       - "**.csproj"
-      - "c-wspp"
-      - '.github/workflows/test.yml'
+      - "c-wspp-rs/**"
+      - ".github/workflows/test.yml"
 
 jobs:
   test-windows:
     strategy:
+      fail-fast: false
       matrix:
-        os:
-          - { gha: windows-latest, wspp: windows }
-        arch:
-          - { cs: x64, wspp: win64 }
-          #- { cs: x86, wspp: win32 }
-        tgt: [ 'net35', 'net8' ]
+        tgt: ["net35", "net8"]
 
-    name: test-windows ${{ matrix.arch.cs }} ${{ matrix.tgt }}
-    runs-on: ${{ matrix.os.gha }}
+    name: test-windows ${{ matrix.tgt }}
+    runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      
-      - name: Setup Project
+
+      - name: Restore + clean
         run: |
           dotnet restore
           dotnet clean
-      
-      - name: Build Tests
+
+      - name: Build wsmini server
         run: |
-          mkdir .\build
-          dotnet build -o .\build --arch ${{ matrix.arch.cs }} -f ${{ matrix.tgt }} -c Debug .\test\wstest.csproj
-      
-      - name: Get c-wspp
+          dotnet build .\test\wsmini.csproj -c Debug -f net8.0
+
+      - name: Build wstest
         run: |
-          export ASSET_ID=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/JKLeckr/c-wspp/releases/latest" | jq -r '.assets[] | select(.name | endswith(".zip")) | select(.name | contains("${{ matrix.arch.wspp }}")) | .id')
-          curl -L -H "Accept: application/octet-stream" "https://api.github.com/repos/JKLeckr/c-wspp/releases/assets/${ASSET_ID}" -o c-wspp.zip
-          ls
-          unzip ./c-wspp.zip
-          cp ./c-wspp_${{ matrix.arch.wspp }}/c-wspp-${{ matrix.arch.wspp }}.dll ./build/
-        shell: bash
-      
-      - name: Run Test
+          dotnet build .\test\wstest.csproj -c Debug -f ${{ matrix.tgt }}
+
+      - name: Run integration test against local wsmini
+        shell: pwsh
         run: |
-          .\build\wstest.exe
+          $server = Start-Process dotnet -ArgumentList ".\test\bin\Debug\net8.0\wsmini.dll" -PassThru -WindowStyle Hidden
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              try {
+                Invoke-WebRequest "http://127.0.0.1:18765/" -UseBasicParsing | Out-Null
+                $ready = $true
+                break
+              } catch {
+                Start-Sleep -Milliseconds 250
+              }
+            }
+            if (-not $ready) { throw "wsmini server did not start in time" }
+
+            if ("${{ matrix.tgt }}" -eq "net35") {
+              & ".\test\bin\Debug\net35\wstest.exe" "" "ws://127.0.0.1:18765/ws"
+            } else {
+              dotnet ".\test\bin\Debug\net8\wstest.dll" "" "ws://127.0.0.1:18765/ws"
+            }
+          } finally {
+            if ($server -and -not $server.HasExited) {
+              Stop-Process -Id $server.Id -Force
+            }
+          }
 
   test-linux:
     strategy:
+      fail-fast: false
       matrix:
-        os:
-          - { gha: ubuntu-22.04, wspp: linux }
-          - { gha: ubuntu-24.04, wspp: linux }
-        arch:
-          - { cs: x64, wspp: amd64 }
-        tgt: [ 'net35', 'net8' ]
+        os: ["ubuntu-22.04", "ubuntu-24.04"]
+        tgt: ["net35", "net8"]
 
-    name: test-linux ${{ matrix.os.gha }} ${{ matrix.arch.cs }} ${{ matrix.tgt }}
-    runs-on: ${{ matrix.os.gha }}
+    name: test-linux ${{ matrix.os }} ${{ matrix.tgt }}
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-      
+
       - name: Setup mono
         if: ${{ matrix.tgt == 'net35' }}
         run: |
           sudo apt update -y
           sudo apt install mono-complete -y
-      
-      - name: Setup Project
+
+      - name: Restore + clean
         run: |
           dotnet restore
           dotnet clean
 
-      - name: Build Tests
+      - name: Build wsmini server
         run: |
-          mkdir ./build
-          dotnet build -o ./build --arch ${{ matrix.arch.cs }} -f ${{ matrix.tgt }} -c Debug ./test/wstest.csproj
-      
-      - name: Get c-wspp
-        run: |
-          export ASSET_ID=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/JKLeckr/c-wspp/releases/latest" | jq -r '.assets[] | select(.name | endswith(".zip")) | select(.name | contains("${{ matrix.os.gha }}-${{ matrix.arch.wspp }}")) | .id')
-          curl -L -H "Accept: application/octet-stream" "https://api.github.com/repos/JKLeckr/c-wspp/releases/assets/${ASSET_ID}" -o c-wspp.zip
-          unzip ./c-wspp.zip
-          cp -v ./c-wspp_${{ matrix.os.gha }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.so ./build/
-      
-      - name: Run Test (net35)
-        if: ${{ matrix.tgt == 'net35' }}
-        run: |
-          mono ./build/wstest.exe
-      
-      - name: Run Test (net8)
-        if: ${{ matrix.tgt == 'net8' }}
-        run: |
-          dotnet ./build/wstest.dll
+          dotnet build ./test/wsmini.csproj -c Debug -f net8.0
 
-  test-macos:
-    if: false
-    strategy:
-      matrix:
-        os:
-          - { gha: macos-latest, wspp: macos }
-        arch:
-          - { mac: arm64, cs: arm64, wspp: universal }
-          - { mac: x86_64, cs: x64, wspp: universal }
-        tgt: [ 'net35', 'net8' ]
-        exclude:
-          - arch:
-              mac: x86_64
-            tgt: 'net8'
+      - name: Build wstest
+        run: |
+          dotnet build ./test/wstest.csproj -c Debug -f ${{ matrix.tgt }}
 
+      - name: Run integration test against local wsmini
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet ./test/bin/Debug/net8.0/wsmini.dll > wsmini.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
 
-    name: test-macos ${{ matrix.arch.mac }} ${{ matrix.tgt }}
-    runs-on: ${{ matrix.os.gha }}
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:18765/ >/dev/null; then
+              break
+            fi
+            sleep 0.25
+          done
 
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Homebrew x86_64
-        if: ${{ matrix.tgt == 'net35' && matrix.arch == 'x86_64' }}
-        run: |
-          arch -x86_64 zsh -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-      
-      - name: Setup Mono
-        if: ${{ matrix.tgt == 'net35' }}
-        run: |
-          arch -${{ matrix.arch.mac }} brew install mono
-
-      - name: Setup dotnet
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-      
-      - name: Setup Project
-        run: |
-          dotnet restore
-          dotnet clean
-      
-      - name: Build Tests
-        run: |
-          dotnet build -o ./build --arch ${{ matrix.arch.cs }} -f ${{ matrix.tgt }} -c Debug ./test/wstest.csproj
-      
-      - name: Get c-wspp
-        run: |
-          zsh
-          export ASSET_ID=$(curl -s -H "Accept: application/vnd.github+json" "https://api.github.com/repos/JKLeckr/c-wspp/releases/latest" | jq -r '.assets[] | select(.name | endswith(".zip")) | select(.name | contains("macos-${{ matrix.arch.wspp }}")) | .id')
-          curl -L -H "Accept: application/octet-stream" "https://api.github.com/repos/JKLeckr/c-wspp/releases/assets/${ASSET_ID}" -o c-wspp.zip
-          ls
-          unzip ./c-wspp.zip
-          cp -v ./c-wspp_${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}/c-wspp-${{ matrix.os.wspp }}-${{ matrix.arch.wspp }}.dylib ./build/
-      
-      - name: Run Test (net35) (x86_64)
-        if: ${{ matrix.tgt == 'net35' && matrix.arch.mac == 'x86_64' }}
-        run: |
-          eval "$(/usr/local/bin/brew shellenv)"
-          /usr/local/bin/mono ./build/wstest.exe
-      
-      - name: Run Test (net35)
-        if: ${{ matrix.tgt == 'net35' && matrix.arch.mac == 'arm64' }}
-        run: |
-          mono ./build/wstest.exe
-      
-      - name: Run Test (net8)
-        if: ${{ matrix.tgt == 'net8' }}
-        run: |
-          dotnet ./build/wstest.dll
+          if [[ "${{ matrix.tgt }}" == "net35" ]]; then
+            mono ./test/bin/Debug/net35/wstest.exe "" "ws://127.0.0.1:18765/ws"
+          else
+            dotnet ./test/bin/Debug/net8/wstest.dll "" "ws://127.0.0.1:18765/ws"
+          fi

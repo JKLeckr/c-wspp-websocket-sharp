@@ -34,7 +34,10 @@ namespace WebSocketSharp
             readyState = WebSocketState.Open;
             EventArgs e = new EventArgs();
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            dispatcher.Enqueue(e);
+            if (dispatcher != null)
+            {
+                dispatcher.Enqueue(e);
+            }
         }
 
         private void CloseHandler()
@@ -50,7 +53,10 @@ namespace WebSocketSharp
 
             CloseEventArgs e = new CloseEventArgs(0, ""); // TODO: code and reason
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            dispatcher.Enqueue(e);
+            if (dispatcher != null)
+            {
+                dispatcher.Enqueue(e);
+            }
         }
 
         private void MessageHandler(byte[] bytes, int opCode)
@@ -62,7 +68,10 @@ namespace WebSocketSharp
 
             MessageEventArgs e = new MessageEventArgs(bytes, (OpCode)opCode);
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            dispatcher.Enqueue(e);
+            if (dispatcher != null)
+            {
+                dispatcher.Enqueue(e);
+            }
         }
 
         private void ErrorHandler(string msg)
@@ -80,8 +89,8 @@ namespace WebSocketSharp
             }
             else if (readyState == WebSocketState.Open)
             {
-                // this should never happen since we throw all exceptions in-line
-                Close();
+                debug("ReadyState = Closed");
+                readyState = WebSocketState.Closed;
             }
             lastError = msg;
             error("Connect error: " + msg);
@@ -111,7 +120,10 @@ namespace WebSocketSharp
             // emit event for external ping
             MessageEventArgs e = new MessageEventArgs(bytes, OpCode.Pong);
             // FIXME: on .net >=4.0 we could use an async task to fire from main thread
-            dispatcher.Enqueue(e);
+            if (dispatcher != null)
+            {
+                dispatcher.Enqueue(e);
+            }
         }
 
         private void SetHandlers()
