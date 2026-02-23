@@ -52,9 +52,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        include:
+          - managed_arch: x64
+            os_id: windows-x64
+            rid_dir: win-x64
+          - managed_arch: x86
+            os_id: windows-x86
+            rid_dir: win-x86
         tfm: ["netstandard2.0", "net35"]
 
-    name: build-windows ${{ matrix.tfm }}
+    name: build-windows ${{ matrix.os_id }} ${{ matrix.tfm }}
     runs-on: windows-latest
     needs: prepare-release
     permissions:
@@ -85,7 +92,7 @@ jobs:
 
       - name: Build websocket-sharp
         run: |
-          dotnet build .\websocket-sharp\websocket-sharp.csproj -c Release -f ${{ matrix.tfm }}
+          dotnet build .\websocket-sharp\websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.managed_arch }}
 
       - name: Generate c-wspp-rs third-party license manifest
         shell: pwsh
@@ -100,12 +107,13 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ needs.prepare-release.outputs.release_tag }}"
-          $osId = "windows-x64"
+          $osId = "${{ matrix.os_id }}"
           $tfm = "${{ matrix.tfm }}"
+          $ridDir = "${{ matrix.rid_dir }}"
           $name = "c-wspp-websocket-sharp_${tag}_${osId}_${tfm}"
           $zipName = "$name.zip"
 
-          $src = Join-Path $PWD "websocket-sharp/bin/Release/$tfm"
+          $src = Join-Path $PWD "websocket-sharp/bin/Release/$tfm/$ridDir"
           $buildDir = Join-Path $PWD "build"
           $pkgDir = Join-Path $buildDir $name
           $zipPath = Join-Path $buildDir $zipName
@@ -247,30 +255,19 @@ jobs:
           files: |
               ${{ steps.pack.outputs.zip_path }}
 
-  build-macos:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - managed_arch: x64
-            os_id: macos-x64
-          - managed_arch: arm64
-            os_id: macos-arm64
-        tfm: ["netstandard2.0", "net35"]
-
-    name: build-macos ${{ matrix.os_id }} ${{ matrix.tfm }}
+  prepare-macos:
+    name: prepare-macos
     runs-on: macos-15
     needs: prepare-release
     permissions:
       contents: write
-
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
@@ -278,6 +275,60 @@ jobs:
         uses: baptiste0928/cargo-install@v3
         with:
           crate: cargo-bundle-licenses
+
+      - name: Build universal macOS c-wspp-rs
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --release --manifest-path c-wspp-rs/Cargo.toml --target aarch64-apple-darwin
+          cargo build --release --manifest-path c-wspp-rs/Cargo.toml --target x86_64-apple-darwin
+          mkdir -p build/macos-prep
+          lipo -create \
+            c-wspp-rs/target/aarch64-apple-darwin/release/libc_wspp_rs.dylib \
+            c-wspp-rs/target/x86_64-apple-darwin/release/libc_wspp_rs.dylib \
+            -output build/macos-prep/c-wspp-macos-universal.dylib
+
+      - name: Generate c-wspp-rs third-party license manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/macos-prep
+          (
+            cd c-wspp-rs
+            cargo bundle-licenses --format yaml --output ../build/macos-prep/cwspp-rs-THIRDPARTY.yaml
+          )
+
+      - name: Upload prepare-macos artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: prepare-macos-assets
+          path: |
+            build/macos-prep/c-wspp-macos-universal.dylib
+            build/macos-prep/cwspp-rs-THIRDPARTY.yaml
+
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - managed_arch: x64
+            os_id: macos-x86_64
+          - managed_arch: arm64
+            os_id: macos-arm64
+        tfm: ["netstandard2.0", "net35"]
+
+    name: build-macos ${{ matrix.os_id }} ${{ matrix.tfm }}
+    runs-on: macos-15
+    needs:
+      - prepare-release
+      - prepare-macos
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
@@ -293,27 +344,11 @@ jobs:
         run: |
           dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }} --arch ${{ matrix.managed_arch }}
 
-      - name: Build universal macOS native library
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo build --release --manifest-path c-wspp-rs/Cargo.toml --target aarch64-apple-darwin
-          cargo build --release --manifest-path c-wspp-rs/Cargo.toml --target x86_64-apple-darwin
-          lipo -create \
-            c-wspp-rs/target/aarch64-apple-darwin/release/libc_wspp_rs.dylib \
-            c-wspp-rs/target/x86_64-apple-darwin/release/libc_wspp_rs.dylib \
-            -output websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib
-          file websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib
-
-      - name: Generate c-wspp-rs third-party license manifest
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p build/licenses
-          (
-            cd c-wspp-rs
-            cargo bundle-licenses --format yaml --output ../build/licenses/cwspp-rs-THIRDPARTY.yaml
-          )
+      - name: Download prepare-macos artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: prepare-macos-assets
+          path: build/macos-prep
 
       - name: Create zip bundle
         id: pack
@@ -329,7 +364,8 @@ jobs:
           ZIP_NAME="${NAME}.zip"
 
           SRC_RUNTIME="websocket-sharp/bin/Release/${TFM}/${RID_DIR}"
-          SRC_UNIVERSAL="websocket-sharp/bin/Release/${TFM}/c-wspp-macos-universal.dylib"
+          SRC_UNIVERSAL="build/macos-prep/c-wspp-macos-universal.dylib"
+          SRC_THIRDPARTY="build/macos-prep/cwspp-rs-THIRDPARTY.yaml"
           BUILD_DIR="build"
           PKG_DIR="${BUILD_DIR}/${NAME}"
           ZIP_PATH="${BUILD_DIR}/${ZIP_NAME}"
@@ -342,7 +378,7 @@ jobs:
           cp LICENSE.txt "${PKG_DIR}/licenses/LICENSE.txt"
           cp c-wspp-rs/LICENSE "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.txt"
           cp c-wspp-rs/LICENSE.3rd-party.txt "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.3rd-party.txt"
-          cp build/licenses/cwspp-rs-THIRDPARTY.yaml "${PKG_DIR}/licenses/cwspp-rs-THIRDPARTY.yaml"
+          cp "${SRC_THIRDPARTY}" "${PKG_DIR}/licenses/cwspp-rs-THIRDPARTY.yaml"
           rm -f \
             "${PKG_DIR}/LICENSE.txt" \
             "${PKG_DIR}/LICENSE.c-wspp-rs.txt" \
