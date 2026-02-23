@@ -38,21 +38,15 @@ jobs:
           fi
           echo "release_tag=${TAG}" >> "${GITHUB_OUTPUT}"
 
-      - name: Ensure draft release exists
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${{ steps.meta.outputs.release_tag }}"
-          if gh release view "${TAG}" >/dev/null 2>&1; then
-            echo "Release ${TAG} already exists."
-          else
-            gh release create "${TAG}" \
-              --draft \
-              --title "${TAG}" \
-              --notes "Automated draft release for ${TAG}"
-          fi
+      - name: Create draft release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.release_tag }}
+          draft: true
+          prerelease: false
+          name: c-wspp-websocket-sharp ${{ steps.meta.outputs.release_tag }}
+          token: ${{ secrets.CWSPP_WEBSOCKET_SHARP_TOKEN }}
+
 
   build-windows:
     strategy:
@@ -72,7 +66,12 @@ jobs:
           submodules: recursive
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Setup Rust tools
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-bundle-licenses
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
@@ -87,6 +86,14 @@ jobs:
       - name: Build websocket-sharp
         run: |
           dotnet build .\websocket-sharp\websocket-sharp.csproj -c Release -f ${{ matrix.tfm }}
+
+      - name: Generate c-wspp-rs third-party license manifest
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path .\build\licenses | Out-Null
+          Push-Location .\c-wspp-rs
+          cargo bundle-licenses --format yaml --output ..\build\licenses\cwspp-rs-THIRDPARTY.yaml
+          Pop-Location
 
       - name: Create zip bundle
         id: pack
@@ -108,16 +115,26 @@ jobs:
           New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
 
           Copy-Item (Join-Path $src '*') -Destination $pkgDir -Recurse -Force
+          $licDir = Join-Path $pkgDir "licenses"
+          New-Item -ItemType Directory -Force -Path $licDir | Out-Null
+          Copy-Item ".\LICENSE.txt" -Destination (Join-Path $licDir "LICENSE.txt") -Force
+          Copy-Item ".\c-wspp-rs\LICENSE" -Destination (Join-Path $licDir "LICENSE.c-wspp-rs.txt") -Force
+          Copy-Item ".\c-wspp-rs\LICENSE.3rd-party.txt" -Destination (Join-Path $licDir "LICENSE.c-wspp-rs.3rd-party.txt") -Force
+          Copy-Item ".\build\licenses\cwspp-rs-THIRDPARTY.yaml" -Destination (Join-Path $licDir "cwspp-rs-THIRDPARTY.yaml") -Force
           Compress-Archive -Path $pkgDir -DestinationPath $zipPath -Force
 
           "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
 
       - name: Upload zip to draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: pwsh
-        run: |
-          gh release upload "${{ needs.prepare-release.outputs.release_tag }}" "${{ steps.pack.outputs.zip_path }}" --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.release_tag }}
+          draft: true
+          prerelease: false
+          name: c-wspp-websocket-sharp ${{ needs.prepare-release.outputs.release_tag }}
+          token: ${{ secrets.CWSPP_WEBSOCKET_SHARP_TOKEN }}
+          files: |
+              ${{ steps.pack.outputs.zip_path }}
 
   build-linux:
     strategy:
@@ -138,7 +155,12 @@ jobs:
           submodules: recursive
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Setup Rust tools
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-bundle-licenses
 
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
@@ -160,6 +182,16 @@ jobs:
         run: |
           dotnet build ./websocket-sharp/websocket-sharp.csproj -c Release -f ${{ matrix.tfm }}
 
+      - name: Generate c-wspp-rs third-party license manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/licenses
+          (
+            cd c-wspp-rs
+            cargo bundle-licenses --format yaml --output ../build/licenses/cwspp-rs-THIRDPARTY.yaml
+          )
+
       - name: Create zip bundle
         id: pack
         shell: bash
@@ -179,17 +211,25 @@ jobs:
           rm -rf "${PKG_DIR}" "${ZIP_PATH}"
           mkdir -p "${PKG_DIR}"
           cp -R "${SRC}/." "${PKG_DIR}/"
+          mkdir -p "${PKG_DIR}/licenses"
+          cp LICENSE.txt "${PKG_DIR}/licenses/LICENSE.txt"
+          cp c-wspp-rs/LICENSE "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.txt"
+          cp c-wspp-rs/LICENSE.3rd-party.txt "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.3rd-party.txt"
+          cp build/licenses/cwspp-rs-THIRDPARTY.yaml "${PKG_DIR}/licenses/cwspp-rs-THIRDPARTY.yaml"
           (cd "${BUILD_DIR}" && zip -r "${ZIP_NAME}" "${NAME}")
 
           echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload zip to draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "${{ needs.prepare-release.outputs.release_tag }}" "${{ steps.pack.outputs.zip_path }}" --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.release_tag }}
+          draft: true
+          prerelease: false
+          name: c-wspp-websocket-sharp ${{ needs.prepare-release.outputs.release_tag }}
+          token: ${{ secrets.CWSPP_WEBSOCKET_SHARP_TOKEN }}
+          files: |
+              ${{ steps.pack.outputs.zip_path }}
 
   build-macos:
     strategy:
@@ -218,6 +258,11 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Setup Rust tools
+        uses: baptiste0928/cargo-install@v3
+        with:
+          crate: cargo-bundle-licenses
+
       - name: Setup dotnet
         uses: actions/setup-dotnet@v4
         with:
@@ -244,6 +289,16 @@ jobs:
             -output websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib
           file websocket-sharp/bin/Release/${{ matrix.tfm }}/c-wspp-macos-universal.dylib
 
+      - name: Generate c-wspp-rs third-party license manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/licenses
+          (
+            cd c-wspp-rs
+            cargo bundle-licenses --format yaml --output ../build/licenses/cwspp-rs-THIRDPARTY.yaml
+          )
+
       - name: Create zip bundle
         id: pack
         shell: bash
@@ -263,14 +318,22 @@ jobs:
           rm -rf "${PKG_DIR}" "${ZIP_PATH}"
           mkdir -p "${PKG_DIR}"
           cp -R "${SRC}/." "${PKG_DIR}/"
+          mkdir -p "${PKG_DIR}/licenses"
+          cp LICENSE.txt "${PKG_DIR}/licenses/LICENSE.txt"
+          cp c-wspp-rs/LICENSE "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.txt"
+          cp c-wspp-rs/LICENSE.3rd-party.txt "${PKG_DIR}/licenses/LICENSE.c-wspp-rs.3rd-party.txt"
+          cp build/licenses/cwspp-rs-THIRDPARTY.yaml "${PKG_DIR}/licenses/cwspp-rs-THIRDPARTY.yaml"
           (cd "${BUILD_DIR}" && zip -r "${ZIP_NAME}" "${NAME}")
 
           echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload zip to draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh release upload "${{ needs.prepare-release.outputs.release_tag }}" "${{ steps.pack.outputs.zip_path }}" --clobber
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.release_tag }}
+          draft: true
+          prerelease: false
+          name: c-wspp-websocket-sharp ${{ needs.prepare-release.outputs.release_tag }}
+          token: ${{ secrets.CWSPP_WEBSOCKET_SHARP_TOKEN }}
+          files: |
+              ${{ steps.pack.outputs.zip_path }}
