@@ -326,6 +326,11 @@ tools/
 # Vim files
 *.swp
 
+.dotnet-home
+
+.uv-cache
+.venv
+
 # OS General Files
 .DS_Store
 .AppleDouble
