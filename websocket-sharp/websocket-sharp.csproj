@@ -53,13 +53,14 @@
           SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="CleanWsppRsNative"
+  <!--Clean does not work correctly. Use just instead-->
+  <!--Target Name="CleanWsppRsNative"
           AfterTargets="Clean"
           Condition="'$(DesignTimeBuild)' != 'true' and ( '$(IsCrossTargetingBuild)' == 'true' or '$(TargetFramework)' != '' ) and Exists('$(WsppRsProjectDir)\Cargo.toml')">
     <Message Importance="high" Text="Cleaning Rust native build output in $(WsppRsProjectDir)" />
     <Exec WorkingDirectory="$(WsppRsProjectDir)"
           Command="cargo clean" />
-  </Target>
+  </Target-->
 
   <Target Name="CopyWsppRsLicenses"
           AfterTargets="Build"
